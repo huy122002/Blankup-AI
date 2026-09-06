@@ -3,6 +3,7 @@
 <html lang="vi" data-lang="vi">
 <head>
   <meta charset="UTF-8">
+  <meta name="view-transition" content="same-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 38 38'%3E%3Crect width='38' height='38' rx='8' fill='%230f0c09'/%3E%3Cpath d='M10 14 L14 10 L24 10 L28 14 L26 14 L26 28 L12 28 L12 14 Z' fill='%23f5f2eb' opacity='0.92'/%3E%3Cpath d='M16 10 L19 6 L22 10' stroke='%23f5f2eb' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
   <meta name="theme-color" content="#f5f2eb">
@@ -15,7 +16,7 @@
   <link rel="stylesheet" href="css/admin.css?v=admin-pro-6">
 </head>
 <body class="admin-theme bk-grain">
-  <nav class="navbar scrolled" id="navbar">
+  <nav class="navbar" id="navbar">
     <div class="container">
       <a href="/" class="navbar-logo">
         <svg class="logo-icon" viewBox="0 0 38 38" fill="none">
@@ -31,15 +32,15 @@
           <span class="lang-vi active" data-lang="vi">VI</span>
           <span class="lang-en" data-lang="en">EN</span>
         </div>
-        <button class="btn btn-secondary btn-sm" id="adminRefreshBtn" type="button" data-i18n="nav.refresh" data-i18n="admin.ledger.refresh">Làm mới</button>
-        <button class="btn btn-ghost btn-sm" id="adminExportBtn" type="button" data-i18n="nav.exportCsv">Xuất CSV</button>
+        <button class="btn btn-secondary btn-sm magnetic" id="adminRefreshBtn" type="button" data-i18n="nav.refresh">Làm mới</button>
+        <button class="btn btn-ghost btn-sm magnetic" id="adminExportBtn" type="button" data-i18n="nav.exportCsv">Xuất CSV</button>
         <a href="/" class="btn btn-ghost btn-sm" data-i18n="nav.backHome">← Trang chủ</a>
       </div>
     </div>
   </nav>
 
   <div class="admin-wrapper container">
-    <aside class="admin-sidebar">
+    <aside class="admin-sidebar rv">
       <div class="sidebar-header">
         <div class="admin-avatar">AD</div>
         <div class="admin-info">
@@ -109,7 +110,7 @@
         </div>
 
         <div class="stats-grid">
-          <div class="stat-card revenue-card animate-fade-in">
+          <div class="stat-card revenue-card animate-fade-in rv">
             <div class="stat-icon">VNĐ</div>
             <div class="stat-data">
               <span class="stat-label" data-i18n="admin.stat.revenue">Doanh thu thực</span>
@@ -118,7 +119,7 @@
             <div class="card-glow"></div>
           </div>
 
-          <div class="stat-card pending-revenue-card animate-fade-in">
+          <div class="stat-card pending-revenue-card animate-fade-in rv">
             <div class="stat-icon">...</div>
             <div class="stat-data">
               <span class="stat-label" data-i18n="admin.stat.pendingRevenue">Doanh thu chờ</span>
@@ -126,7 +127,7 @@
             </div>
           </div>
 
-          <div class="stat-card animate-fade-in">
+          <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">AVG</div>
             <div class="stat-data">
               <span class="stat-label" data-i18n="admin.stat.avgValue">Giá trị TB</span>
@@ -134,7 +135,7 @@
             </div>
           </div>
 
-          <div class="stat-card animate-fade-in">
+          <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">ORD</div>
             <div class="stat-data">
               <span class="stat-label" data-i18n="admin.stat.totalOrders">Tổng số đơn</span>
@@ -142,7 +143,7 @@
             </div>
           </div>
 
-          <div class="stat-card animate-fade-in">
+          <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">PAY</div>
             <div class="stat-data">
               <span class="stat-label" data-i18n="admin.stat.paidOrders">Đơn đã thanh toán</span>
@@ -150,7 +151,7 @@
             </div>
           </div>
 
-          <div class="stat-card animate-fade-in">
+          <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">QR</div>
             <div class="stat-data">
               <span class="stat-label" data-i18n="admin.stat.awaitingTransfer">Chờ chuyển khoản</span>
@@ -158,7 +159,7 @@
             </div>
           </div>
 
-          <div class="stat-card animate-fade-in">
+          <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">USR</div>
             <div class="stat-data">
               <span class="stat-label" data-i18n="admin.users">Người dùng</span>
@@ -166,7 +167,7 @@
             </div>
           </div>
 
-          <div class="stat-card animate-fade-in">
+          <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">AI</div>
             <div class="stat-data">
               <span class="stat-label">M?u AI gen</span>

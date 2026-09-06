@@ -905,7 +905,32 @@ async function showDesignOnMockup(designUrl, productMockupUrl, productMockupBlan
   updateActionButtons(true);
   updateSideBadge();
   updateBackDesignControls();
+  // Stage 4+5 choreography (REAL state only: a layer was actually created).
+  if (created) announceFreshResult();
   return created;
+}
+
+/* Stage 4 (result blur-in) + Stage 5 (actions stagger) — presentation only.
+   Fires only when a design truly landed on the canvas. Skipped entirely
+   under prefers-reduced-motion. Never touches generation/3D logic. */
+function announceFreshResult() {
+  try {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const stage = document.querySelector('.studio-canvas') || document.getElementById('canvasViewer');
+    const actions = document.querySelector('.actions-section');
+    if (stage) {
+      stage.classList.remove('result-fresh');
+      void stage.offsetWidth; // restart the one-shot animation
+      stage.classList.add('result-fresh');
+      window.setTimeout(() => stage.classList.remove('result-fresh'), 800);
+    }
+    if (actions) {
+      actions.classList.remove('actions-fresh');
+      void actions.offsetWidth;
+      actions.classList.add('actions-fresh');
+      window.setTimeout(() => actions.classList.remove('actions-fresh'), 900);
+    }
+  } catch { /* choreography must never break functionality */ }
 }
 
 /* ============================================================

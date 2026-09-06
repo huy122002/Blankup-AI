@@ -3,6 +3,7 @@
 <html lang="vi" data-lang="vi">
 <head>
   <meta charset="UTF-8">
+  <meta name="view-transition" content="same-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 38 38'%3E%3Crect width='38' height='38' rx='4' fill='%230f0c09'/%3E%3Cpath d='M10 14 L14 10 L24 10 L28 14 L26 14 L26 28 L12 28 L12 14 Z' fill='%23f5f2eb' opacity='0.94'/%3E%3Cpath d='M16 10 L19 6 L22 10' stroke='%23c19856' stroke-width='1.8' fill='none'/%3E%3C/svg%3E">
   <meta name="theme-color" content="#f5f2eb">
@@ -31,10 +32,10 @@
   <main>
     <section class="pricing-hero">
       <div class="container">
-        <div class="pricing-eyebrow">BLANKUP AI PLANS</div>
-        <h1 class="pricing-title">Chọn gói phù hợp với <span class="accent">nhịp sáng tạo</span> của bạn</h1>
-        <p class="pricing-subtitle">Từ miễn phí hàng ngày tới Studio Plus cho đội nhóm. Tất cả giá hiển thị đều từ backend — không hard-code. Áp voucher để xem giá cuối cùng trước khi thanh toán.</p>
-        <div class="pricing-trust">
+        <div class="pricing-eyebrow rv">BLANKUP AI PLANS</div>
+        <h1 class="pricing-title rv">Chọn gói phù hợp với <span class="accent">nhịp sáng tạo</span> của bạn</h1>
+        <p class="pricing-subtitle rv">Từ miễn phí hàng ngày tới Studio Plus cho đội nhóm. Tất cả giá hiển thị đều từ backend — không hard-code. Áp voucher để xem giá cuối cùng trước khi thanh toán.</p>
+        <div class="pricing-trust rv">
           <span>✓ Không hard-code giá</span>
           <span>✓ Voucher tuỳ chọn</span>
           <span>✓ Thanh toán VietQR</span>
@@ -44,7 +45,7 @@
 
     <section class="pricing-plans-section">
       <div class="container">
-        <div id="pricingGrid" class="pricing-grid">
+        <div id="pricingGrid" class="pricing-grid rv">
           <div class="pricing-loading">Đang tải gói từ server...</div>
         </div>
         <div id="pricingError" style="display:none; text-align:center; color:#dc2626; margin-top:16px;"></div>
@@ -54,8 +55,8 @@
 
     <section class="pricing-compare">
       <div class="container">
-        <h2>So sánh tính năng</h2>
-        <div class="table-wrap">
+        <h2 class="rv">So sánh tính năng</h2>
+        <div class="table-wrap rv">
           <table class="compare-table">
             <thead>
               <tr><th>Tính năng</th><th id="compareHead">Các gói</th></tr>
@@ -68,7 +69,7 @@
 
     <section class="pricing-faq">
       <div class="container">
-        <h2>Câu hỏi thường gặp</h2>
+        <h2 class="rv">Câu hỏi thường gặp</h2>
         <details><summary>Voucher có bắt buộc không?</summary><p>Không. Bạn có thể chọn <strong>Không dùng voucher</strong> hoặc chọn voucher khả dụng. Backend sẽ validate lại khi bạn tạo đơn.</p></details>
         <details><summary>Làm sao biết giá cuối cùng?</summary><p>Bấm <strong>Áp dụng voucher</strong> — hệ thống gọi <code>POST /api/ai-plans/quote</code> và hiển thị <em>giá gốc, giảm, tổng</em> do backend tính.</p></details>
         <details><summary>QR dùng số tiền nào?</summary><p>QR dùng <code>finalAmount</code> do backend trả về khi <code>POST /purchase</code>. Frontend không tự tính.</p></details>
@@ -116,7 +117,7 @@
         <div id="pricingPaymentHint" class="pm-muted"></div>
         <div id="pricingPollingInfo" class="pm-poll"></div>
       </div>
-      <button id="pricingConfirmBtn" class="btn btn-primary pm-full" style="display:none;">Tạo đơn & lấy QR</button>
+      <button id="pricingConfirmBtn" class="btn btn-primary pm-full magnetic" style="display:none;">Tạo đơn & lấy QR</button>
       <div id="pricingPostActions" class="pm-actions" style="display:none;">
         <button id="pricingCheckAgainBtn" class="btn btn-secondary btn-sm">Kiểm tra lại</button>
         <button id="pricingDoneBtn" class="btn btn-primary btn-sm">Hoàn tất</button>

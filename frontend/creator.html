@@ -3,6 +3,7 @@
 <html lang="vi" data-lang="vi">
 <head>
   <meta charset="UTF-8">
+  <meta name="view-transition" content="same-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 38 38'%3E%3Crect width='38' height='38' rx='8' fill='%230f0c09'/%3E%3Cpath d='M10 14 L14 10 L24 10 L28 14 L26 14 L26 28 L12 28 L12 14 Z' fill='%23f5f2eb' opacity='0.92'/%3E%3Cpath d='M16 10 L19 6 L22 10' stroke='%23f5f2eb' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
   <meta name="theme-color" content="#f5f2eb">
@@ -13,7 +14,7 @@
   <link rel="stylesheet" href="css/creator.css">
 </head>
 <body class="bk-grain">
-  <nav class="navbar scrolled" id="navbar">
+  <nav class="navbar" id="navbar">
     <div class="container">
       <a href="/" class="navbar-logo">
         <svg class="logo-icon" viewBox="0 0 38 38" fill="none">
@@ -37,12 +38,12 @@
 
   <section class="creator-page section">
     <div class="container">
-      <div id="creatorLoading" class="creator-loading">Đang tải hồ sơ...</div>
+      <div id="creatorLoading" class="creator-loading" role="status" aria-live="polite">Đang tải hồ sơ...</div>
 
       <div id="creatorContent" style="display:none;">
-        <div class="creator-card">
+        <div class="creator-card rv">
           <div class="creator-header">
-            <div class="creator-avatar" id="creatorAvatar">?</div>
+            <div class="creator-avatar" id="creatorAvatar" aria-hidden="true">?</div>
             <div class="creator-heading">
               <h1 class="creator-name" id="creatorName">—</h1>
               <div class="creator-meta">

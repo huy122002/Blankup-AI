@@ -335,3 +335,26 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
   .account-panel.active { animation: none; }
   .account-order-card, .account-plan-card, .account-empty-cta { transition: none; }
 }
+
+/* Dark surfaces */
+[data-theme="dark"] .account-page { background: #14110d; color: #cfc6b4; }
+[data-theme="dark"] .account-subtitle,
+[data-theme="dark"] .account-card-desc,
+[data-theme="dark"] .account-order-meta,
+[data-theme="dark"] .account-credit-note,
+[data-theme="dark"] .account-plan-desc,
+[data-theme="dark"] .account-empty { color: #a89c85; }
+[data-theme="dark"] .account-card,
+[data-theme="dark"] .account-order-card,
+[data-theme="dark"] .account-plan-card,
+[data-theme="dark"] .account-orders-summary { background: #1d1b18; border-color: rgba(245, 242, 235, 0.14); }
+[data-theme="dark"] .account-card-title,
+[data-theme="dark"] .account-meta-value,
+[data-theme="dark"] .account-order-price,
+[data-theme="dark"] .account-empty-title { color: #f5f2eb; }
+[data-theme="dark"] .account-form input { color: #f5f2eb; border-color: rgba(245, 242, 235, 0.3); }
+[data-theme="dark"] .account-form .btn-primary { background: #f5f2eb; border-color: #f5f2eb; color: #0f0c09; }
+[data-theme="dark"] .account-tab { color: #a89c85; }
+[data-theme="dark"] .account-tab:hover { color: #f5f2eb; }
+[data-theme="dark"] .account-empty-cta { background: #f5f2eb; color: #0f0c09 !important; }
+[data-theme="dark"] #planPurchaseModal .modal-content { background: #1d1b18; }

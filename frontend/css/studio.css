@@ -145,11 +145,6 @@
   50% { opacity: 0.5; }
 }
 
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
@@ -1260,15 +1255,15 @@
 }
 
 .placement-side-tag {
-  font-style: normal;
-  font-weight: 800;
-  color: #b45309;
-  text-transform: uppercase;
-  font-size: 0.72em;
+font-style: normal;
+font-weight: 800;
+color: #a37c3a;
+text-transform: uppercase;
+font-size: 0.72em;
 }
 
 .placement-side-tag.is-back {
-  color: #7c3aed;
+color: #6f7a5e;
 }
 
 @media print {
@@ -2432,21 +2427,6 @@
 }
 
 /* ============================================================
-   SKELETON LOADING (for future use)
-   ============================================================ */
-.skeleton {
-  background: linear-gradient(90deg, var(--s-surface) 25%, var(--s-card-hover) 50%, var(--s-surface) 75%);
-  background-size: 200% 100%;
-  animation: shimmer 1.5s infinite;
-  border-radius: var(--s-radius);
-}
-
-.skeleton-text { height: 12px; margin-bottom: 8px; }
-.skeleton-title { height: 20px; width: 60%; margin-bottom: 12px; }
-.skeleton-avatar { width: 40px; height: 40px; border-radius: 50%; }
-.skeleton-image { width: 100%; aspect-ratio: 1; }
-
-/* ============================================================
    AI GENERATION PROGRESS OVERLAY
    ============================================================ */
 .gen-progress-overlay {
@@ -3308,4 +3288,32 @@ html[data-trial="true"] .studio-right {
 @media (prefers-reduced-motion: reduce) {
   .style-chip, .action-btn, .layer-row, .community-card,
   .community-card-img, .generate-btn { transition: none !important; }
+}
+
+/* ---------- Generation result choreography (one-shot, state-driven) ---------- */
+.result-fresh #mockupDesign,
+.result-fresh .viewer-design-overlay {
+  animation: resultIn 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: filter, transform, opacity;
+}
+@keyframes resultIn {
+  from { filter: blur(12px); transform: scale(0.97); opacity: 0.35; }
+  to { filter: blur(0); transform: scale(1); opacity: 1; }
+}
+.actions-fresh .action-btn {
+  animation: actionIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.actions-fresh .action-btn:nth-child(1) { animation-delay: 0ms; }
+.actions-fresh .action-btn:nth-child(2) { animation-delay: 50ms; }
+.actions-fresh .action-btn:nth-child(3) { animation-delay: 100ms; }
+.actions-fresh .action-btn:nth-child(4) { animation-delay: 150ms; }
+.actions-fresh .action-btn:nth-child(n+5) { animation-delay: 200ms; }
+@keyframes actionIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .result-fresh #mockupDesign,
+  .result-fresh .viewer-design-overlay,
+  .actions-fresh .action-btn { animation: none !important; }
 }

@@ -146,6 +146,29 @@
 
 html { scroll-behavior: smooth; font-size: 16px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
 body { font-family: var(--font-body); color: var(--text-body); background-color: var(--bg-primary); line-height: 1.6; overflow-x: hidden; }
+
+/* Shared dark surfaces — pages without their own dark theme inherit these */
+[data-theme="dark"] {
+  --ink: #f5f2eb;
+  --paper: #14110d;
+  --paper-alt: #1d1b18;
+  --line: rgba(245, 242, 235, 0.14);
+  --line-strong: rgba(245, 242, 235, 0.24);
+  --paper-dim: #cfc6b4;
+  --paper-mute: #a89c85;
+  --text-heading: #f5f2eb;
+  --text-body: #cfc6b4;
+  --text-muted: #a89c85;
+  --text-white: #f5f2eb;
+  --bg-primary: #14110d;
+  --bg-secondary: #1d1b18;
+  --bg-tertiary: #26221c;
+  --card-bg: #1d1b18;
+  --card-border: rgba(245, 242, 235, 0.14);
+  --border: rgba(245, 242, 235, 0.14);
+  --border-light: rgba(245, 242, 235, 0.08);
+  --overlay: rgba(0, 0, 0, 0.65);
+}
 h1, h2, h3, h4, h5, h6 { font-family: var(--font-heading); color: var(--text-heading); line-height: 1.15; font-weight: 700; letter-spacing: -0.01em; }
 a { text-decoration: none; color: inherit; transition: color var(--transition-fast); }
 img { max-width: 100%; height: auto; display: block; }
@@ -211,11 +234,17 @@ ul { list-style: none; }
 .btn-ghost:hover { border-color: var(--ink); background: var(--paper-alt); }
 .btn-lg { padding: 16px 30px; font-size: 0.82rem; }
 .btn-sm { padding: 10px 18px; font-size: 0.72rem; }
+/* Physical press response (no layout shift, transform only) */
+.btn:active, .generate-btn:active, .action-btn:active {
+  transform: translateY(1px) scale(0.99);
+  transition-duration: 120ms;
+}
 
 /* ============================================================
    NAVBAR — light, permanent hairline bar, consistent on every page
    ============================================================ */
-.navbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; background: rgba(255, 255, 255, 0.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+.navbar { position: fixed; top: 0; left: 0; right: 0; z-index: 1000; background: rgba(245, 242, 235, 0.92); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+[data-theme="dark"] .navbar { background: rgba(20, 17, 13, 0.92); }
 .navbar .container { display: flex; align-items: center; justify-content: space-between; height: 72px; }
 .navbar-logo { display: flex; align-items: center; gap: 10px; font-family: var(--font-heading); font-size: 1.05rem; font-weight: 700; letter-spacing: 0.02em; color: var(--ink); }
 .navbar-logo .logo-icon { width: 30px; height: 30px; }
@@ -482,12 +511,12 @@ ul { list-style: none; }
    SKELETON — Products (Sprint 1, shared)
    ============================================================ */
 .skeleton-card { border-radius: var(--radius-cards); overflow: hidden; border: 1px solid var(--card-border); background: var(--card-bg); display: flex; flex-direction: column; }
-.skeleton-media { aspect-ratio: 4/5; background: linear-gradient(90deg, var(--card-bg) 25%, var(--border) 50%, var(--card-bg) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+.skeleton-media { aspect-ratio: 4/5; background: linear-gradient(90deg, var(--card-bg) 25%, var(--border) 50%, var(--card-bg) 75%); background-size: 200% 100%; animation: bk-shimmer 1.4s linear infinite; }
 .skeleton-body { padding: 16px; display: flex; flex-direction: column; gap: 8px; }
-.skeleton-line { height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--card-bg) 25%, var(--border) 50%, var(--card-bg) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+.skeleton-line { height: 12px; border-radius: 4px; background: linear-gradient(90deg, var(--card-bg) 25%, var(--border) 50%, var(--card-bg) 75%); background-size: 200% 100%; animation: bk-shimmer 1.4s linear infinite; }
 .skeleton-line.short { width: 55%; }
 .skeleton-line.mid { width: 78%; }
-@keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes bk-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
 @media (prefers-reduced-motion: reduce) {
   .skeleton-media, .skeleton-line { animation: none !important; }
   .gallery-card.reveal-ready, .product-card.reveal-ready { opacity: 1 !important; transform: none !important; }
@@ -696,3 +725,29 @@ body.login-page-body #forgotSuccessMsg { border-radius: 2px !important; }
 @media (prefers-reduced-motion: reduce) {
   body.login-page-body .social-btn:hover { transform: none; }
 }
+
+/* Auth dark surfaces */
+[data-theme="dark"] body.login-page-body {
+  background:
+    radial-gradient(circle at 82% 8%, rgba(213, 177, 120, 0.14), transparent 26%),
+    linear-gradient(115deg, #14110d, #1d1b18 55%, #26221c);
+}
+[data-theme="dark"] body.login-page-body .login-card {
+  background: #1d1b18;
+  border-color: rgba(245, 242, 235, 0.16);
+}
+[data-theme="dark"] body.login-page-body .login-card-header h2 { color: #f5f2eb; }
+[data-theme="dark"] body.login-page-body .login-card .form-input { color: #f5f2eb; border-color: rgba(245, 242, 235, 0.3); }
+[data-theme="dark"] body.login-page-body .login-card .btn-primary {
+  background: #f5f2eb;
+  border-color: #f5f2eb;
+  color: #0f0c09;
+}
+[data-theme="dark"] body.login-page-body .login-card .btn-primary:hover {
+  background: #d5b178;
+  border-color: #d5b178;
+}
+[data-theme="dark"] body.login-page-body .social-btn { border-color: rgba(245, 242, 235, 0.25); color: #f5f2eb; }
+[data-theme="dark"] body.login-page-body .social-btn:hover { background: #26221c; border-color: #f5f2eb; }
+[data-theme="dark"] body.login-page-body .login-header { border-color: rgba(245, 242, 235, 0.14); }
+[data-theme="dark"] body.login-page-body .auth-switch { color: #a89c85; }

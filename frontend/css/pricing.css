@@ -369,3 +369,28 @@ body.pricing-page {
 @media (prefers-reduced-motion: reduce) {
   .pricing-card { transition: none; }
 }
+
+/* Dark surfaces — inherits shared dark text vars from style.css */
+[data-theme="dark"] body.pricing-page { background: #14110d; color: #cfc6b4; }
+[data-theme="dark"] .pricing-subtitle,
+[data-theme="dark"] .pricing-card-desc,
+[data-theme="dark"] .pricing-card-meta,
+[data-theme="dark"] .pricing-faq p,
+[data-theme="dark"] .pm-muted,
+[data-theme="dark"] .pm-poll,
+[data-theme="dark"] .pricing-footer-inner { color: #a89c85; }
+[data-theme="dark"] .pricing-trust { color: #a89c85; }
+[data-theme="dark"] .pricing-hero { background: #14110d; }
+[data-theme="dark"] .pricing-nav { background: rgba(20, 17, 13, 0.92); }
+[data-theme="dark"] .pricing-wordmark { color: #f5f2eb; }
+[data-theme="dark"] .pricing-grid { background: rgba(245, 242, 235, 0.14); border-color: rgba(245, 242, 235, 0.14); }
+[data-theme="dark"] .pricing-card { background: #1d1b18; }
+[data-theme="dark"] .pricing-card:hover { background: #26221c; }
+[data-theme="dark"] .pricing-card.featured { background: #26221c; }
+[data-theme="dark"] .pricing-cta .btn { color: #f5f2eb; border-color: rgba(245, 242, 235, 0.3); }
+[data-theme="dark"] .pricing-cta .btn:hover { background: #f5f2eb; color: #0f0c09; border-color: #f5f2eb; }
+[data-theme="dark"] .pricing-faq details { background: #1d1b18; border-color: rgba(245, 242, 235, 0.14); }
+[data-theme="dark"] .pm-card { background: #1d1b18; border-color: rgba(245, 242, 235, 0.16); }
+[data-theme="dark"] .pm-section { background: #14110d; }
+[data-theme="dark"] .pm-quote, [data-theme="dark"] .pm-input { background: #14110d; color: #f5f2eb; border-color: rgba(245, 242, 235, 0.25); }
+[data-theme="dark"] .pricing-footer-brand { color: #f5f2eb; }

@@ -258,3 +258,15 @@
 .creator-card { border-top: 2px solid #c19856; }
 .creator-avatar { color: #f5f2eb; }
 .creator-list-avatar { background: #0f0c09; color: #f5f2eb; }
+
+/* Dark surfaces */
+[data-theme="dark"] .creator-page { background: #14110d; color: #cfc6b4; }
+[data-theme="dark"] .creator-card,
+[data-theme="dark"] .creator-design-card,
+[data-theme="dark"] .creator-stat { background: #1d1b18; border-color: rgba(245, 242, 235, 0.14); }
+[data-theme="dark"] .creator-name,
+[data-theme="dark"] .creator-section-title h2,
+[data-theme="dark"] .creator-empty h2 { color: #f5f2eb; }
+[data-theme="dark"] .creator-empty p,
+[data-theme="dark"] .creator-design-date,
+[data-theme="dark"] .creator-list-username { color: #a89c85; }

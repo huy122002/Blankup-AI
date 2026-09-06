@@ -104,25 +104,12 @@ function initHeroSpotlight() {
 }
 
 /* ============================================================
-   MAGNETIC BUTTONS
+   MAGNETIC BUTTONS — consolidated into shared motion.js (delegated,
+   dynamic-safe). Homepage CTAs carry .magnetic in markup; motion.js
+   owns the pull physics. This stub remains as a no-op for safety.
    ============================================================ */
 function initMagneticButtons() {
-  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  document.querySelectorAll('.hero-btn-primary, .hero-btn-secondary, .nav-cta').forEach(btn => {
-    btn.addEventListener('mousemove', (e) => {
-      const rect = btn.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width;
-      const y = (e.clientY - rect.top) / rect.height;
-      const dx = (x - 0.5) * 8;
-      const dy = (y - 0.5) * 8;
-      btn.style.transform = `translate(${dx}px, ${dy}px)`;
-      btn.style.transition = 'transform 0.2s ease-out';
-    });
-    btn.addEventListener('mouseleave', () => {
-      btn.style.transform = '';
-      btn.style.transition = 'transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)';
-    });
-  });
+  // Handled by js/motion.js — see tokens.css .magnetic for easing.
 }
 
 /* ============================================================

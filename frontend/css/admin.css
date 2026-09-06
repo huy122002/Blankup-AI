@@ -1272,3 +1272,23 @@ body.admin-theme .admin-badge {
 @media (prefers-reduced-motion: reduce) {
   body.admin-theme .stat-card { transition: none; }
 }
+
+/* Admin console is deliberately light-locked (dense data legibility, no
+   theme toggle in its UI): pin shared vars back even under data-theme=dark */
+[data-theme="dark"] body.admin-theme {
+  --ink: #17140f;
+  --paper: #ffffff;
+  --paper-alt: #faf7f1;
+  --text-heading: #17140f;
+  --text-body: #423d34;
+  --text-muted: #837b6b;
+  --bg-primary: #faf7f1;
+  --bg-secondary: #ffffff;
+  --card-bg: #ffffff;
+  --card-border: #e7e2d6;
+  --border: #e7e2d6;
+  --line: rgba(23, 20, 15, 0.12);
+  --line-strong: rgba(23, 20, 15, 0.26);
+  background-color: #faf7f1 !important;
+  color: #423d34 !important;
+}

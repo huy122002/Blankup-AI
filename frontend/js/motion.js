@@ -93,22 +93,55 @@
     });
   }
 
-  /* ---------- Magnetic pull ---------- */
+  /* ---------- Magnetic pull (single delegated listener — also covers
+     dynamically injected .magnetic nodes, no per-element bindings) ---------- */
   function initMagnetic() {
     if (reduceMotion || !finePointer) return;
-    document.querySelectorAll('.magnetic').forEach(function (el) {
-      if (el.dataset.magneticBound) return;
-      el.dataset.magneticBound = '1';
-      el.addEventListener('mousemove', function (e) {
-        var r = el.getBoundingClientRect();
-        var dx = (e.clientX - r.left - r.width / 2) * 0.14;
-        var dy = (e.clientY - r.top - r.height / 2) * 0.14;
-        el.style.transform = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px)';
-      });
-      el.addEventListener('mouseleave', function () {
-        el.style.transform = '';
-      });
+    var current = null;
+    document.addEventListener('mousemove', function (e) {
+      var el = e.target.closest ? e.target.closest('.magnetic') : null;
+      if (el !== current) {
+        if (current) current.style.transform = '';
+        current = el;
+      }
+      if (!el) return;
+      var r = el.getBoundingClientRect();
+      var dx = (e.clientX - r.left - r.width / 2) * 0.14;
+      var dy = (e.clientY - r.top - r.height / 2) * 0.14;
+      el.style.transform = 'translate(' + dx.toFixed(1) + 'px,' + dy.toFixed(1) + 'px)';
+    }, { passive: true });
+    document.addEventListener('mouseleave', function () {
+      if (current) { current.style.transform = ''; current = null; }
     });
+    // Touch safety: never leave a stuck transform after tap
+    document.addEventListener('touchend', function () {
+      if (current) { current.style.transform = ''; current = null; }
+    }, { passive: true });
+  }
+
+  /* ---------- Card pointer spotlight (one delegated listener; desktop only).
+     Cards opt in by matching .gallery-card / .pricing-card / .stat-card.
+     Transform-free: only CSS vars + opacity. Mobile untouched. ---------- */
+  function initSpotlight() {
+    if (reduceMotion || !finePointer) return;
+    var current = null;
+    document.addEventListener('mousemove', function (e) {
+      var el = e.target.closest
+        ? e.target.closest('.gallery-card, .pricing-card, .stat-card')
+        : null;
+      if (el !== current) {
+        if (current) {
+          current.style.removeProperty('--spot-x');
+          current.style.removeProperty('--spot-y');
+        }
+        current = el;
+      }
+      if (!el) return;
+      var r = el.getBoundingClientRect();
+      el.style.setProperty('--spot-x', ((e.clientX - r.left)).toFixed(1) + 'px');
+      el.style.setProperty('--spot-y', ((e.clientY - r.top)).toFixed(1) + 'px');
+    }, { passive: true });
+    document.addEventListener('mouseleave', function () { current = null; });
   }
 
   /* ---------- Char split for display headlines ---------- */
@@ -159,6 +192,7 @@
     initCursorRing();
     initReveals();
     initMagnetic();
+    initSpotlight();
     initSplit();
   }
 

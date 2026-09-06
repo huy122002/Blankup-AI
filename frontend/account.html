@@ -3,6 +3,7 @@
 <html lang="vi" data-lang="vi">
 <head>
   <meta charset="UTF-8">
+  <meta name="view-transition" content="same-origin">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 38 38'%3E%3Crect width='38' height='38' rx='8' fill='%230f0c09'/%3E%3Cpath d='M10 14 L14 10 L24 10 L28 14 L26 14 L26 28 L12 28 L12 14 Z' fill='%23f5f2eb' opacity='0.92'/%3E%3Cpath d='M16 10 L19 6 L22 10' stroke='%23f5f2eb' stroke-width='1.5' fill='none'/%3E%3C/svg%3E">
   <meta name="theme-color" content="#f5f2eb">
@@ -48,13 +49,13 @@
   <!-- ====== ACCOUNT PAGE ====== -->
   <section class="account-page section">
     <div class="container">
-      <div class="account-header">
+      <div class="account-header rv">
         <div class="tag tag-rust"><span>Tài khoản</span></div>
         <h1 class="account-title">Xin chào, <span class="accent" id="accountGreetName">bạn</span></h1>
         <p class="account-subtitle">Quản lý hồ sơ, mật khẩu và theo dõi đơn hàng của bạn.</p>
       </div>
 
-      <div class="account-tabs">
+      <div class="account-tabs rv">
         <button class="account-tab active" data-tab="profile">Hồ sơ</button>
         <button class="account-tab" data-tab="security">Bảo mật</button>
         <button class="account-tab" data-tab="orders">Đơn hàng của tôi</button>
@@ -63,7 +64,7 @@
 
       <!-- Profile tab -->
       <div class="account-panel active" id="panel-profile">
-        <div class="account-card">
+        <div class="account-card rv">
           <div class="account-card-title">Thông tin cá nhân</div>
           <div class="account-card-desc">Cập nhật họ tên, email hiển thị trên đơn hàng và liên hệ.</div>
           <form class="account-form" id="profileForm">
@@ -81,7 +82,7 @@
               <label>Email</label>
               <input type="email" id="profileEmail" placeholder="email@example.com">
             </div>
-            <button type="submit" class="btn btn-primary" id="profileSaveBtn">Lưu thay đổi</button>
+            <button type="submit" class="btn btn-primary magnetic" id="profileSaveBtn">Lưu thay đổi</button>
           </form>
 
           <hr class="account-divider">
@@ -121,7 +122,7 @@
                 <input type="password" id="confirmPassword" required minlength="6" autocomplete="new-password">
               </div>
             </div>
-            <button type="submit" class="btn btn-primary" id="passwordSaveBtn">Đổi mật khẩu</button>
+            <button type="submit" class="btn btn-primary magnetic" id="passwordSaveBtn">Đổi mật khẩu</button>
           </form>
         </div>
       </div>
@@ -171,7 +172,7 @@
             <div class="account-summary-label">Gói hiện tại</div>
           </div>
         </div>
-        <div class="account-card">
+        <div class="account-card rv">
           <div class="account-card-title">Mua gói AI</div>
           <div class="account-card-desc">Nâng cấp gói để nhận thêm credit và chất lượng output cao hơn. Chọn voucher (không bắt buộc) để xem giá cuối cùng trước khi thanh toán.</div>
           <!-- Voucher selector (Phase 1D+1E) -->
@@ -199,7 +200,7 @@
             <div class="account-loading">Đang tải danh sách gói...</div>
           </div>
         </div>
-        <div class="account-card">
+        <div class="account-card rv">
           <div class="account-card-title">Lịch sử credit</div>
           <div class="account-card-desc">Mỗi lần tạo thiết kế sẽ trừ credit tương ứng với chất lượng output.</div>
           <div class="account-credit-list" id="creditLedgerList">
