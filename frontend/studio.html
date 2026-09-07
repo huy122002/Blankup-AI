@@ -54,16 +54,16 @@
 
     <!-- TOOLBAR TABS -->
     <div class="studio-toolbar">
-      <div class="studio-toolbar-inner">
-        <button class="toolbar-tab active" data-tab="prompt" id="tabPrompt">
+      <div class="studio-toolbar-inner" role="tablist" aria-label="Chế độ Studio">
+        <button class="toolbar-tab active" data-tab="prompt" id="tabPrompt" role="tab" aria-selected="true" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
           <span data-i18n="studio.tab.prompt">Viết Prompt</span>
         </button>
-        <button class="toolbar-tab" data-tab="image" id="tabImage">
+        <button class="toolbar-tab" data-tab="image" id="tabImage" role="tab" aria-selected="false" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
           <span data-i18n="studio.tab.image">Ảnh + Ý tưởng</span>
         </button>
-        <button class="toolbar-tab" data-tab="templates" id="tabTemplates">
+        <button class="toolbar-tab" data-tab="templates" id="tabTemplates" role="tab" aria-selected="false" type="button">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
           <span data-i18n="studio.tab.templates">Mẫu có sẵn</span>
         </button>
@@ -83,13 +83,19 @@
           </div>
           <div class="panel-section-body">
             <div class="prompt-area">
-              <textarea class="prompt-input" id="promptInput" rows="4"
+              <textarea class="prompt-input" id="promptInput" rows="4" maxlength="2000"
+                aria-describedby="promptHint promptCount promptError"
                 placeholder='VD: "Một con rồng Việt Nam phong cách cyberpunk với hiệu ứng neon xanh, trên nền đen"'></textarea>
-              <button class="prompt-enhance-btn" id="promptEnhanceBtn" title="AI tối ưu prompt">
+              <button class="prompt-enhance-btn" id="promptEnhanceBtn" title="AI tối ưu prompt" type="button">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
                 <span>Enhance</span>
               </button>
             </div>
+            <div class="field-meta" id="promptHint">
+              <small class="field-hint">Mô tả càng chi tiết, bản in càng đúng ý. Tối đa 2000 ký tự.</small>
+              <small class="field-count" id="promptCount" aria-live="polite">0 / 2000</small>
+            </div>
+            <p class="field-error" id="promptError" role="alert" hidden></p>
 
             <div class="panel-label">Phong cách</div>
             <div class="style-grid" id="styleGrid">
@@ -140,8 +146,9 @@
             </div>
 
             <div class="panel-label">Chữ / slogan (tùy chọn)</div>
-            <input type="text" class="text-input" id="customTextInput"
-              placeholder="VD: BLANKUP, tên riêng, câu slogan...">
+            <input type="text" class="text-input" id="customTextInput" aria-label="Chữ / slogan in trên áo (tùy chọn)" maxlength="60" autocomplete="off"
+              aria-describedby="customTextHint" placeholder="VD: BLANKUP, tên riêng, câu slogan...">
+            <small class="field-hint" id="customTextHint">Tối đa 60 ký tự để bản in không bị tràn. Hỗ trợ tiếng Việt, emoji.</small>
 
             <button class="generate-btn magnetic" id="generatePromptBtn">
               <span class="generate-btn-spinner"></span>
@@ -158,25 +165,27 @@
             <h3>Upload ảnh tham khảo</h3>
           </div>
           <div class="panel-section-body">
-            <div class="upload-zone" id="uploadDropzone">
-              <input type="file" id="imageUpload" accept="image/*" hidden>
+            <div class="upload-zone" id="uploadDropzone" aria-describedby="uploadFormats">
+              <input type="file" id="imageUpload" accept="image/png,image/jpeg,image/webp" hidden>
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               <div class="upload-zone-text">Kéo thả ảnh vào đây</div>
               <div class="upload-zone-or">hoặc</div>
               <span class="upload-zone-browse">Chọn file</span>
-              <div class="upload-zone-formats">PNG, JPG, WEBP (tối đa 10MB)</div>
+              <div class="upload-zone-formats" id="uploadFormats">PNG, JPG, WEBP (tối đa 10MB)</div>
             </div>
             <div class="upload-preview" id="uploadPreview" style="display:none;">
-              <img id="uploadPreviewImg" src="" alt="Preview">
-              <button class="upload-preview-remove" id="removeUpload" title="Xoá">✕</button>
+              <img id="uploadPreviewImg" alt="Ảnh tham khảo đã tải lên" decoding="async" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.style.visibility='hidden'">
+              <button class="upload-preview-remove" id="removeUpload" title="Xoá ảnh đã tải" aria-label="Xoá ảnh đã tải" type="button">✕</button>
             </div>
 
             <div class="panel-label">Mô tả ý tưởng</div>
-            <textarea class="prompt-input" id="ideaInput" rows="3"
+            <textarea class="prompt-input" id="ideaInput" rows="3" maxlength="1000"
+              aria-describedby="ideaCount"
               placeholder="Mô tả ý tưởng chỉnh sửa dựa trên ảnh này..."></textarea>
+            <div class="field-meta"><small class="field-hint">Không bắt buộc. Tối đa 1000 ký tự.</small><small class="field-count" id="ideaCount" aria-live="polite">0 / 1000</small></div>
 
             <div class="panel-label">Chữ / slogan (tùy chọn)</div>
-            <input type="text" class="text-input" id="customTextInputImage"
+            <input type="text" class="text-input" id="customTextInputImage" aria-label="Chữ / slogan cho ảnh tải lên (tùy chọn)" maxlength="60" autocomplete="off"
               placeholder="VD: BLANKUP, tên riêng, câu slogan...">
 
             <button class="generate-btn" id="generateImageBtn">
@@ -194,8 +203,8 @@
             <h3>Mẫu thiết kế có sẵn</h3>
           </div>
           <div class="panel-section-body">
-            <div class="templates-grid" id="templatesGrid">
-              <!-- Loaded dynamically -->
+            <div class="templates-grid" id="templatesGrid" aria-live="polite">
+              <div class="layer-empty" id="templatesEmpty">Mẫu có sẵn đang được cập nhật — bạn vẫn có thể dùng gợi ý prompt ở tab Viết Prompt.</div>
             </div>
           </div>
         </div>
@@ -217,15 +226,16 @@
       <section class="studio-canvas">
         <div class="canvas-wrapper" id="canvasWrapper">
           <!-- Empty state -->
-          <div class="canvas-empty" id="canvasEmpty">
+          <div class="canvas-empty" id="canvasEmpty" role="status">
             <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round" opacity="0.3"><path d="M20.38 3.46 16 2 12 3.46 8 2 3.62 3.46a2 2 0 0 0-1.34 1.89v13.3a2 2 0 0 0 2.66 1.89L8 19l4-1.46L16 19l4.38-1.46a2 2 0 0 0 1.34-1.89V5.35a2 2 0 0 0-1.34-1.89z"/><line x1="12" y1="2" x2="12" y2="17.54"/></svg>
-            <p>Tạo một design để xem trước tại đây</p>
+            <p data-i18n="studio.preview.empty">Tạo một design để xem trước tại đây</p>
+            <small class="field-hint">Mẹo: prompt 10–200 ký tự cho kết quả ổn định nhất. Ảnh PNG trong suốt cho bản in đẹp nhất.</small>
           </div>
 
           <!-- 3D Viewer -->
           <div class="canvas-viewer" id="canvasViewer" style="display:none;">
-            <canvas class="viewer-canvas" id="tshirt360Canvas" aria-label="3D t-shirt viewer"></canvas>
-            <img class="viewer-fallback-img" id="productRender3d" src="" alt="">
+            <canvas class="viewer-canvas" id="tshirt360Canvas" role="img" aria-label="Xem trước áo thun 3D với thiết kế của bạn"></canvas>
+            <img class="viewer-fallback-img" id="productRender3d" alt="Bản xem trước 3D" decoding="async" hidden src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.hidden=true">
             <canvas class="viewer-css-fallback" id="mockup3dCanvas"></canvas>
             <img class="viewer-svg-fallback" id="mockupTshirt"
               src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 300 360'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='0' y2='1'%3E%3Cstop offset='0%25' stop-color='%23f8f8f8'/%3E%3Cstop offset='100%25' stop-color='%23e8e8e8'/%3E%3C/linearGradient%3E%3C/defs%3E%3Cpath d='M75 50 L30 80 L10 140 L55 150 L65 100 L65 330 L235 330 L235 100 L245 150 L290 140 L270 80 L225 50 L195 65 Q175 80 150 80 Q125 80 105 65 Z' fill='url(%23g)' stroke='%23ddd' stroke-width='1'/%3E%3Cellipse cx='150' cy='52' rx='30' ry='15' fill='none' stroke='%23ddd' stroke-width='1'/%3E%3C/svg%3E"
@@ -307,20 +317,20 @@
           </div>
           <div class="placement-sliders">
             <div class="placement-slider-group">
-              <label>Ngang (X)</label>
-              <input type="range" id="printPosX" min="-80" max="80" value="0">
+              <label for="printPosX">Ngang (X)</label>
+              <input type="range" id="printPosX" min="-80" max="80" value="0" aria-label="Vị trí ngang của mẫu in">
             </div>
             <div class="placement-slider-group">
-              <label>Dọc (Y)</label>
-              <input type="range" id="printPosY" min="-75" max="45" value="-12">
+              <label for="printPosY">Dọc (Y)</label>
+              <input type="range" id="printPosY" min="-75" max="45" value="-12" aria-label="Vị trí dọc của mẫu in">
             </div>
             <div class="placement-slider-group">
-              <label>Kích thước</label>
-              <input type="range" id="printScale" min="20" max="220" value="100">
+              <label for="printScale">Kích thước</label>
+              <input type="range" id="printScale" min="20" max="220" value="100" aria-label="Kích thước mẫu in (phần trăm)">
             </div>
             <div class="placement-slider-group">
-              <label>Xoay (°)</label>
-              <input type="range" id="printRotation" min="0" max="360" value="0">
+              <label for="printRotation">Xoay (°)</label>
+              <input type="range" id="printRotation" min="0" max="360" value="0" aria-label="Góc xoay mẫu in">
             </div>
           </div>
           <div class="placement-panel-header" style="margin-top:8px;">
@@ -328,16 +338,16 @@
           </div>
           <div class="placement-sliders">
             <div class="placement-slider-group">
-              <label>Ngang (X)</label>
-              <input type="range" id="textPosX" min="-80" max="80" value="0">
+              <label for="textPosX">Ngang (X)</label>
+              <input type="range" id="textPosX" min="-80" max="80" value="0" aria-label="Vị trí ngang của chữ">
             </div>
             <div class="placement-slider-group">
-              <label>Dọc (Y)</label>
-              <input type="range" id="textPosY" min="-75" max="45" value="18">
+              <label for="textPosY">Dọc (Y)</label>
+              <input type="range" id="textPosY" min="-75" max="45" value="18" aria-label="Vị trí dọc của chữ">
             </div>
             <div class="placement-slider-group">
-              <label>Kích thước</label>
-              <input type="range" id="textScale" min="30" max="260" value="100">
+              <label for="textScale">Kích thước</label>
+              <input type="range" id="textScale" min="30" max="260" value="100" aria-label="Kích thước chữ (phần trăm)">
             </div>
           </div>
         </div>
@@ -364,14 +374,14 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/></svg>
             <span>Màu áo</span>
           </div>
-          <div class="color-row" id="colorOptions">
-            <button class="color-dot active" data-color="#ffffff" style="background:#ffffff;" title="Trắng"></button>
-            <button class="color-dot" data-color="#000000" style="background:#000000;" title="Đen"></button>
-            <button class="color-dot" data-color="#1e293b" style="background:#1e293b;" title="Navy"></button>
-            <button class="color-dot" data-color="#6b7280" style="background:#6b7280;" title="Xám"></button>
-            <button class="color-dot" data-color="#dc2626" style="background:#dc2626;" title="Đỏ"></button>
-            <button class="color-dot" data-color="#2563eb" style="background:#2563eb;" title="Xanh"></button>
-            <button class="color-dot" data-color="#059669" style="background:#059669;" title="Xanh lá"></button>
+          <div class="color-row" id="colorOptions" role="group" aria-label="Màu áo">
+            <button class="color-dot active" data-color="#ffffff" style="background:#ffffff;" title="Trắng" aria-label="Trắng" aria-pressed="true" type="button"></button>
+            <button class="color-dot" data-color="#000000" style="background:#000000;" title="Đen" aria-label="Đen" aria-pressed="false" type="button"></button>
+            <button class="color-dot" data-color="#1e293b" style="background:#1e293b;" title="Navy" aria-label="Navy" aria-pressed="false" type="button"></button>
+            <button class="color-dot" data-color="#6b7280" style="background:#6b7280;" title="Xám" aria-label="Xám" aria-pressed="false" type="button"></button>
+            <button class="color-dot" data-color="#dc2626" style="background:#dc2626;" title="Đỏ" aria-label="Đỏ" aria-pressed="false" type="button"></button>
+            <button class="color-dot" data-color="#2563eb" style="background:#2563eb;" title="Xanh" aria-label="Xanh dương" aria-pressed="false" type="button"></button>
+            <button class="color-dot" data-color="#059669" style="background:#059669;" title="Xanh lá" aria-label="Xanh lá" aria-pressed="false" type="button"></button>
           </div>
         </div>
 
@@ -381,12 +391,12 @@
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
             <span>Kích cỡ</span>
           </div>
-          <div class="size-row" id="sizeOptions">
-            <button class="size-btn" data-size="S">S</button>
-            <button class="size-btn active" data-size="M">M</button>
-            <button class="size-btn" data-size="L">L</button>
-            <button class="size-btn" data-size="XL">XL</button>
-            <button class="size-btn" data-size="2XL">2XL</button>
+          <div class="size-row" id="sizeOptions" role="group" aria-label="Kích cỡ">
+            <button class="size-btn" data-size="S" aria-pressed="false" type="button">S</button>
+            <button class="size-btn active" data-size="M" aria-pressed="true" type="button">M</button>
+            <button class="size-btn" data-size="L" aria-pressed="false" type="button">L</button>
+            <button class="size-btn" data-size="XL" aria-pressed="false" type="button">XL</button>
+            <button class="size-btn" data-size="2XL" aria-pressed="false" type="button">2XL</button>
           </div>
         </div>
 
@@ -397,9 +407,9 @@
             <span>Số lượng</span>
           </div>
           <div class="qty-row">
-            <button class="qty-btn" id="qtyMinus">−</button>
-            <span class="qty-value" id="qtyValue">1</span>
-            <button class="qty-btn" id="qtyPlus">+</button>
+            <button class="qty-btn" id="qtyMinus" aria-label="Giảm số lượng" type="button">−</button>
+            <span class="qty-value" id="qtyValue" role="status" aria-live="polite" aria-label="Số lượng: 1">1</span>
+            <button class="qty-btn" id="qtyPlus" aria-label="Tăng số lượng" type="button">+</button>
           </div>
         </div>
 
@@ -439,7 +449,11 @@
         <h2 data-i18n="studio.recent.title">Thiết kế cộng đồng</h2>
         <p data-i18n="studio.recent.subtitle">Lấy cảm hứng từ các thiết kế của cộng đồng Blankup</p>
       </div>
-      <div class="community-grid" id="communityGrid"></div>
+      <div class="community-grid" id="communityGrid" aria-live="polite" aria-busy="true"></div>
+      <div class="community-state" id="communityState">
+        <div class="skeleton-row" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+        <p class="field-hint">Đang tải thiết kế cộng đồng…</p>
+      </div>
     </div>
   </main>
 
@@ -502,22 +516,27 @@
             </div>
           </div>
 
-          <form id="orderForm">
+          <form id="orderForm" novalidate>
             <div class="form-group">
-              <label data-i18n="order.name">Họ tên *</label>
-              <input type="text" class="form-input" id="orderName" required>
+              <label for="orderName" data-i18n="order.name">Họ tên *</label>
+              <input type="text" class="form-input" id="orderName" required maxlength="100" autocomplete="name" aria-describedby="orderNameError">
+              <p class="field-error" id="orderNameError" role="alert" hidden></p>
             </div>
             <div class="form-group">
-              <label data-i18n="order.phone">Số điện thoại *</label>
-              <input type="tel" class="form-input" id="orderPhone" required>
+              <label for="orderPhone" data-i18n="order.phone">Số điện thoại *</label>
+              <input type="tel" class="form-input" id="orderPhone" required maxlength="20" autocomplete="tel" inputmode="tel" aria-describedby="orderPhoneHint orderPhoneError" placeholder="0912345678">
+              <small class="field-hint" id="orderPhoneHint">Số Việt Nam: 0xxxxxxxxx hoặc +84xxxxxxxxx.</small>
+              <p class="field-error" id="orderPhoneError" role="alert" hidden></p>
             </div>
             <div class="form-group">
-              <label data-i18n="order.address">Địa chỉ giao hàng *</label>
-              <textarea class="form-input" id="orderAddress" rows="2" required></textarea>
+              <label for="orderAddress" data-i18n="order.address">Địa chỉ giao hàng *</label>
+              <textarea class="form-input" id="orderAddress" rows="2" required maxlength="500" autocomplete="street-address" aria-describedby="orderAddressError"></textarea>
+              <p class="field-error" id="orderAddressError" role="alert" hidden></p>
             </div>
             <div class="form-group">
-              <label data-i18n="order.note">Ghi chú (tùy chọn)</label>
-              <input type="text" class="form-input" id="orderNote">
+              <label for="orderNote" data-i18n="order.note">Ghi chú (tùy chọn)</label>
+              <input type="text" class="form-input" id="orderNote" maxlength="500" autocomplete="off" aria-describedby="orderNoteCount">
+              <small class="field-count" id="orderNoteCount" aria-live="polite">0 / 500</small>
             </div>
             <button type="submit" class="btn btn-primary btn-lg magnetic" style="width:100%;" id="orderSubmitBtn">
               <span data-i18n="order.submit">Xác nhận đặt hàng</span>
@@ -535,7 +554,7 @@
           <div class="bank-transfer-box" id="bankTransferBox" style="display:none;">
             <div class="bank-transfer-title">Quét QR chuyển khoản</div>
             <div class="bank-transfer-qr">
-              <img id="successQrImage" src="" alt="QR chuyển khoản">
+              <img id="successQrImage" alt="QR chuyển khoản" decoding="async" loading="lazy" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.style.visibility='hidden'">
             </div>
             <div class="bank-transfer-status" id="bankTransferStatus">Đang chờ hệ thống xác nhận chuyển khoản...</div>
             <div class="bank-transfer-row"><span>Ngân hàng</span><strong id="successBankName">MB Bank</strong></div>
@@ -573,10 +592,10 @@
         <div class="print-sheet-body">
           <div class="print-sheet-col">
             <div class="print-mockup-box">
-              <img id="printSheetMockup" src="" alt="Mockup áo với vị trí in">
+              <img id="printSheetMockup" alt="Mockup áo với vị trí in" decoding="async" loading="lazy" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.style.visibility='hidden'">
             </div>
             <div class="print-mockup-box" id="printSheetBack" style="display:none;">
-              <img src="" alt="Mockup mặt sau">
+              <img alt="Mockup mặt sau" decoding="async" loading="lazy" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.style.visibility='hidden'">
               <div class="print-mockup-caption">Mặt sau</div>
             </div>
             <div class="print-sheet-note">
@@ -595,7 +614,7 @@
               <tr class="print-total-row"><td>Tổng cộng</td><td id="psTotal">—</td></tr>
             </table>
             <div class="print-sheet-thumb">
-              <img id="printSheetDesign" src="" alt="Thiết kế">
+              <img id="printSheetDesign" alt="Thiết kế" decoding="async" loading="lazy" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.style.visibility='hidden'">
               <div class="print-sheet-thumb-caption">Thiết kế in</div>
             </div>
           </div>
@@ -625,7 +644,7 @@
   </div>
 
   <!-- ====== AI GENERATION PROGRESS ====== -->
-  <div class="gen-progress-overlay" id="genProgressOverlay">
+  <div class="gen-progress-overlay" id="genProgressOverlay" role="status" aria-live="polite" aria-label="Tiến trình tạo thiết kế AI">
     <div class="gen-progress-card">
       <div class="gen-progress-icon" id="genProgressIcon">
         <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>

@@ -10,6 +10,7 @@
   --admin-card-bg: #fffdf8;
   --admin-border: rgba(15, 12, 9, 0.14);
   --color-gold: #a37c3a; /* Champagne gold for the editorial admin */
+  --color-gold-text: #7d5f2c; /* Darker gold for text on light backgrounds - meets WCAG AA 4.5:1 */
   --color-gold-glow: rgba(193, 152, 86, 0.1);
   --font-display: 'Playfair Display', Georgia, serif;
   --font-body: 'Manrope', system-ui, sans-serif;
@@ -405,15 +406,17 @@ body.admin-theme textarea:focus {
   transition: width 1s ease-out;
 }
 
-/* Category Specific Colors */
+/* Category Breakdown — brand tonal ramp (Operate: label + lightness
+   distinguish, never color-only). Row 1 gold owns primary; moss/slate/
+   ochre-deep follow. All tints pair ≥4.5:1 with their deep text. */
 .category-row:nth-child(2) .progress-bar-fill {
-  background: #0ea5e9;
+  background: #4a5a3f;
 }
 .category-row:nth-child(3) .progress-bar-fill {
-  background: #059669;
+  background: #4f6a8a;
 }
 .category-row:nth-child(4) .progress-bar-fill {
-  background: #7c3aed;
+  background: #7d5f2c;
 }
 
 /* Status Summary Indicators */
@@ -441,15 +444,15 @@ body.admin-theme textarea:focus {
 }
 
 .status-indicator.completed .indicator-dot {
-  background-color: var(--success);
+  background-color: #4a5a3f;
 }
 
 .status-indicator.pending .indicator-dot {
-  background-color: #f59e0b;
+  background-color: #a3711f;
 }
 
 .status-indicator.cancelled .indicator-dot {
-  background-color: #ef4444;
+  background-color: #a3341f;
 }
 
 .indicator-label {
@@ -513,51 +516,51 @@ body.admin-theme textarea:focus {
 }
 
 .badge-pending {
-  background: #fef3c7;
-  color: #a37c3a;
-  border: 1px solid #fde68a;
+  background: #f7ecd4;
+  color: #7d5f2c;
+  border: 1px solid rgba(125, 95, 44, 0.35);
 }
 
 .badge-completed {
-  background: #d1fae5;
-  color: #059669;
-  border: 1px solid #a7f3d0;
+  background: #e4e9dd;
+  color: #4a5a3f;
+  border: 1px solid rgba(74, 90, 63, 0.3);
 }
 
 .badge-cancelled {
-  background: #fee2e2;
-  color: #dc2626;
-  border: 1px solid #fecaca;
+  background: #f9e4de;
+  color: #a3341f;
+  border: 1px solid rgba(163, 52, 31, 0.3);
 }
 
 .badge-awaiting-payment {
-  background: #ffedd5;
-  color: #c2410c;
-  border: 1px solid #fed7aa;
+  background: #f7ecd4;
+  color: #7d5f2c;
+  border: 1px solid rgba(125, 95, 44, 0.35);
 }
 
 .badge-processing {
-  background: #dbeafe;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: #e6ebf1;
+  color: #4f6a8a;
+  border: 1px solid rgba(79, 106, 138, 0.3);
 }
 
 .badge-shipped {
-  background: #ede9fe;
-  color: #6d28d9;
-  border: 1px solid #ddd6fe;
+  background: #e6ebf1;
+  color: #4f6a8a;
+  border: 1px solid rgba(79, 106, 138, 0.3);
 }
 
 .badge-delivered {
-  background: #ccfbf1;
-  color: #0f766e;
-  border: 1px solid #99f6e4;
+  background: #e4e9dd;
+  color: #4a5a3f;
+  border: 1px solid rgba(74, 90, 63, 0.3);
 }
 
 .badge-payment-failed {
-  background: #ffe4e6;
-  color: #be123c;
-  border: 1px solid #fecdd3;
+  background: #f9e4de;
+  color: #a3341f;
+  border: 1px solid rgba(163, 52, 31, 0.3);
 }
 
 /* Filters Bar */
@@ -628,23 +631,23 @@ body.admin-theme textarea:focus {
 }
 
 .btn-icon.btn-complete-action:hover {
-  background: var(--success);
-  border-color: var(--success);
+  background: #4a5a3f;
+  border-color: #4a5a3f;
 }
 
 .btn-icon.btn-cancel-action:hover {
-  background: #ef4444;
-  border-color: #ef4444;
+  background: #a3341f;
+  border-color: #a3341f;
 }
 
 .btn-icon.btn-ship-action:hover {
-  background: #7c3aed;
-  border-color: #7c3aed;
+  background: #4f6a8a;
+  border-color: #4f6a8a;
 }
 
 .btn-icon.btn-deliver-action:hover {
-  background: #0d9488;
-  border-color: #0d9488;
+  background: #4a5a3f;
+  border-color: #4a5a3f;
 }
 
 /* AI Designs Gallery grid styling */
@@ -986,42 +989,42 @@ body.admin-theme textarea:focus {
 }
 
 .badge-paid {
-  background: #dcfce7;
-  color: #047857;
-  border: 1px solid #86efac;
+  background: #e4e9dd;
+  color: #4a5a3f;
+  border: 1px solid rgba(74, 90, 63, 0.3);
 }
 
 .badge-awaiting {
-  background: #fff7ed;
-  color: #ea580c;
-  border: 1px solid #fed7aa;
+  background: #f7ecd4;
+  color: #7d5f2c;
+  border: 1px solid rgba(125, 95, 44, 0.35);
 }
 
 .badge-underpaid {
-  background: #fef2f2;
-  color: #b91c1c;
-  border: 1px solid #fecaca;
+  background: #f9e4de;
+  color: #a3341f;
+  border: 1px solid rgba(163, 52, 31, 0.3);
 }
 
 .badge-bank {
-  background: #eff6ff;
-  color: #1d4ed8;
-  border: 1px solid #bfdbfe;
+  background: #e6ebf1;
+  color: #4f6a8a;
+  border: 1px solid rgba(79, 106, 138, 0.3);
 }
 
 .badge-cod,
 .badge-muted {
-  background: #f1f5f9;
+  background: #ece4d3;
   color: #423d34;
-  border: 1px solid #e7e2d6;
+  border: 1px solid rgba(15, 12, 9, 0.14);
 }
 
 .status-indicator.paid .indicator-dot {
-  background-color: #10b981;
+  background-color: #4a5a3f;
 }
 
 .status-indicator.awaiting .indicator-dot {
-  background-color: var(--accent);
+  background-color: #a3711f;
 }
 
 .admin-loading .dashboard-card,
@@ -1206,7 +1209,7 @@ body.admin-theme .navbar-logo {
   font-style: italic;
   font-weight: 600;
 }
-body.admin-theme .navbar-logo .logo-highlight { color: #a37c3a !important; }
+body.admin-theme .navbar-logo .logo-highlight { color: var(--color-gold-text) !important; }
 body.admin-theme .panel-header h2,
 body.admin-theme .card-title,
 body.admin-theme .stat-value {
@@ -1222,8 +1225,8 @@ body.admin-theme .vf-label {
   letter-spacing: 0.08em;
 }
 body.admin-theme .sidebar-link.active {
-  color: #a37c3a;
-  border-color: #c19856;
+  color: var(--color-gold-text);
+  border-color: var(--color-gold);
 }
 body.admin-theme .stat-card {
   border: 1px solid rgba(15, 12, 9, 0.14);
@@ -1264,13 +1267,20 @@ body.admin-theme .btn-primary:hover {
   color: #0f0c09;
 }
 body.admin-theme .admin-badge {
-  border: 1px solid #c19856;
-  color: #a37c3a;
+  border: 1px solid var(--color-gold);
+  color: var(--color-gold-text);
   border-radius: 2px;
   font-family: 'DM Mono', monospace;
 }
 @media (prefers-reduced-motion: reduce) {
   body.admin-theme .stat-card { transition: none; }
+}
+
+/* Harden: visible focus on selects (replaces bare outline:none) */
+.admin-select:focus-visible,
+.admin-search:focus-visible {
+  outline: 2px solid #c19856;
+  outline-offset: 1px;
 }
 
 /* Admin console is deliberately light-locked (dense data legibility, no

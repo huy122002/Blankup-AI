@@ -141,6 +141,7 @@
   --bk-ink-2: #1d1b18;
   --bk-gold: #c19856;
   --bk-gold-deep: #a37c3a;
+  --bk-gold-text: #7d5f2c; /* Darker gold for text on light backgrounds - meets WCAG AA 4.5:1 */
   --bk-gold-soft: rgba(193, 152, 86, 0.14);
   --bk-champagne: #ead9c0;
   --bk-body: #3f3830;
@@ -161,7 +162,7 @@
   --bk-font-mono: 'DM Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
 
   --bk-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --bk-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --bk-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* z-index scale (systemic layers only) */
   --bk-z-grain: 2000;
@@ -181,6 +182,7 @@
   --bk-ink-2: #ece4d3;
   --bk-gold: #d5b178;
   --bk-gold-deep: #c19856;
+  --bk-gold-text: #d5b178; /* In dark mode, gold-text is the bright gold */
   --bk-gold-soft: rgba(213, 177, 120, 0.16);
   --bk-champagne: #3a3227;
   --bk-body: #cfc6b4;
@@ -224,8 +226,8 @@
   pointer-events: none;
   opacity: 0;
   will-change: transform, opacity;
-  transition: opacity 0.35s ease, width 0.35s var(--bk-ease-out),
-    height 0.35s var(--bk-ease-out), background-color 0.35s ease;
+  transition: opacity 0.35s ease, transform 0.35s var(--bk-ease-out),
+    background-color 0.35s ease;
 }
 .bk-cursor-ring.is-on { opacity: 0.85; }
 .bk-cursor-ring.is-hot {
@@ -254,7 +256,7 @@
 /* Editorial eyebrow label (use sparingly — max 1 per 3 sections) */
 .bk-eyebrow {
   font-family: var(--bk-font-mono);
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--bk-gold-deep);
@@ -314,6 +316,217 @@ summary:focus-visible {
   html { scroll-behavior: auto !important; }
 }
 
+/* ============================================================
+   HARDEN — Production-ready utilities (text overflow, i18n, edge cases)
+   ============================================================ */
+
+/* Text overflow & wrapping */
+.bk-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bk-line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bk-line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bk-wrap {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  hyphens: auto;
+}
+
+/* Flex/Grid overflow prevention */
+.bk-flex-item {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bk-grid-item {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* Responsive text sizing - minimum 16px for body to prevent iOS zoom */
+.bk-body-text {
+  font-size: clamp(1rem, 1.1vw, 1.125rem);
+}
+
+/* RTL support - logical properties */
+[dir="rtl"] .bk-rtl-flip { transform: scaleX(-1); }
+[dir="rtl"] .bk-rtl-margin-start { margin-inline-start: var(--s-space-4); margin-inline-end: 0; }
+[dir="rtl"] .bk-rtl-padding { padding-inline: var(--s-space-4); }
+[dir="rtl"] .bk-rtl-border-end { border-inline-end: 1px solid var(--bk-line); }
+
+/* Focus visible enhancement for accessibility */
+:focus-visible {
+  outline: 2px solid var(--bk-gold);
+  outline-offset: 2px;
+}
+
+/* High contrast mode support */
+@media (forced-colors: active) {
+  .bk-card { border: 1px solid CanvasText; }
+  .bk-btn-primary { border: 2px solid CanvasText; }
+  .bk-focus-scope :focus-visible,
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  select:focus-visible,
+  summary:focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+}
+
+/* Screen reader only */
+.bk-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Empty state */
+.bk-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s-space-10) var(--s-space-6);
+  text-align: center;
+  color: var(--s-text-muted);
+}
+
+.bk-empty-state svg { margin-bottom: var(--s-space-4); opacity: 0.6; }
+.bk-empty-state-title { font-size: 1.1rem; margin-bottom: var(--s-space-2); color: var(--s-text); }
+.bk-empty-state-desc { font-size: 0.9rem; max-width: 280px; }
+
+/* Loading skeleton */
+.bk-skeleton {
+  background: linear-gradient(90deg, var(--s-card) 25%, var(--s-border) 50%, var(--s-card) 75%);
+  background-size: 200% 100%;
+  animation: bk-shimmer 1.4s linear infinite;
+  border-radius: var(--s-radius);
+}
+
+@keyframes bk-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bk-skeleton { animation: none !important; background: var(--s-border); }
+}
+
+/* Error state */
+.bk-error-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--s-error);
+  font-size: 0.8rem;
+  font-family: var(--bk-font-mono);
+  margin-top: 4px;
+}
+
+.bk-error-inline svg { flex-shrink: 0; }
+
+/* Form field error state */
+.bk-field-error input,
+.bk-field-error textarea,
+.bk-field-error select {
+  border-color: var(--s-error) !important;
+}
+
+.bk-field-error input:focus,
+.bk-field-error textarea:focus,
+.bk-field-error select:focus {
+  box-shadow: 0 0 0 3px rgba(163, 52, 31, 0.15);
+}
+
+/* Button loading state */
+.bk-btn-loading {
+  position: relative;
+  color: transparent !important;
+  pointer-events: none;
+}
+
+.bk-btn-loading::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: bk-spin 0.7s linear infinite;
+}
+
+@keyframes bk-spin { to { transform: rotate(360deg); } }
+
+/* Button disabled state */
+.bk-btn:disabled,
+.bk-btn[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Image fallback for broken images */
+.bk-img-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--s-bg-subtle);
+  color: var(--s-text-muted);
+}
+
+/* Skip link enhancement */
+.bk-skip-link:focus {
+  left: var(--s-space-4);
+  top: var(--s-space-4);
+  z-index: var(--bk-z-toast);
+  box-shadow: var(--s-shadow-lg);
+}
+
+/* Container queries for responsive components (future-proof) */
+@container (min-width: 400px) {
+  .bk-responsive-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@container (min-width: 700px) {
+  .bk-responsive-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* Print styles */
+@media print {
+  .bk-no-print { display: none !important; }
+  .bk-print-only { display: block !important; }
+  .bk-card { box-shadow: none; border: 1px solid #ccc; }
+  a { text-decoration: none; color: inherit; }
+}
+
 /* Cross-document page transition (same-origin only; visual layer —
    query params, auth state, session, redirects untouched).
    Activated per-page via <meta name="view-transition" content="same-origin">. */
@@ -342,6 +555,13 @@ summary:focus-visible {
   @view-transition { navigation: none; }
   ::view-transition-old(root),
   ::view-transition-new(root) { animation: none; }
+}
+
+/* Hydration placeholders: an <img> with empty/missing src renders a broken
+   box pre-JS. Hide until a real URL is assigned (selector stops matching). */
+img[src=""],
+img:not([src]) {
+  display: none;
 }
 
 /* Pointer spotlight for curated cards (vars set by motion.js delegation) */

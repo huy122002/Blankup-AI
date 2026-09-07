@@ -43,8 +43,8 @@ body.pricing-page {
   color: #6d6358;
   font-size: 0.85rem;
 }
-.pricing-nav-links a:hover { color: #a37c3a; }
-.pricing-nav-links a.active { color: #a37c3a; font-weight: 700; }
+.pricing-nav-links a:hover { color: var(--bk-gold-text); }
+.pricing-nav-links a.active { color: var(--bk-gold-text); font-weight: 700; }
 .pricing-nav-links .btn {
   background: #0f0c09;
   color: #f5f2eb;
@@ -70,10 +70,10 @@ body.pricing-page {
 [data-theme="dark"] .pricing-hero { background: #14110d; }
 .pricing-eyebrow {
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.26em;
   text-transform: uppercase;
-  color: #a37c3a;
+  color: var(--bk-gold-text);
   margin-bottom: 18px;
 }
 .pricing-title {
@@ -86,11 +86,11 @@ body.pricing-page {
   margin: 0 auto 16px;
   text-wrap: balance;
 }
-.pricing-title .accent { color: #a37c3a; font-style: italic; }
+.pricing-title .accent { color: var(--bk-gold-text); font-style: italic; }
 .pricing-subtitle { color: #6d6358; max-width: 640px; margin: 0 auto 18px; font-size: 0.95rem; line-height: 1.7; }
 .pricing-trust { display: flex; gap: 18px; justify-content: center; flex-wrap: wrap; font-size: 0.8rem; color: #6d6358; }
 .pricing-trust span { display: flex; align-items: center; gap: 6px; }
-.pricing-trust span::before { content: '✓'; color: #a37c3a; font-weight: 700; }
+.pricing-trust span::before { content: '✓'; color: var(--bk-gold-text); font-weight: 700; }
 
 /* ---------- Plan cards ---------- */
 .pricing-plans-section { padding: 36px 0 12px; }
@@ -121,7 +121,7 @@ body.pricing-page {
   background: #c19856;
   color: #0f0c09;
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   padding: 6px 12px;
@@ -147,18 +147,18 @@ body.pricing-page {
 .pricing-card-credits { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 16px; }
 .pricing-credit-pill {
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.04em;
   padding: 6px 10px;
   border-radius: 2px;
   border: 1px solid;
 }
-.pricing-credit-pill.high { color: #a37c3a; border-color: rgba(163, 124, 58, 0.4); background: rgba(193, 152, 86, 0.1); }
+.pricing-credit-pill.high { color: var(--bk-gold-text); border-color: rgba(163, 124, 58, 0.4); background: var(--bk-gold-soft); }
 .pricing-credit-pill.low { color: #7a6a4f; border-color: rgba(122, 106, 79, 0.35); background: rgba(122, 106, 79, 0.08); }
 .pricing-credit-pill.daily { color: #4a5a3f; border-color: rgba(74, 90, 63, 0.3); background: rgba(74, 90, 63, 0.08); }
 .pricing-features { list-style: none; padding: 0; margin: 0 0 20px; display: flex; flex-direction: column; gap: 9px; font-size: 0.88rem; }
 .pricing-features li { display: flex; gap: 10px; align-items: flex-start; line-height: 1.55; }
-.pricing-features li::before { content: "✓"; color: #a37c3a; font-weight: 700; }
+.pricing-features li::before { content: "✓"; color: var(--bk-gold-text); font-weight: 700; }
 .pricing-cta { margin-top: auto; }
 .pricing-cta .btn {
   width: 100%;
@@ -195,7 +195,7 @@ body.pricing-page {
   background: #0f0c09;
   color: #f5f2eb;
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   font-weight: 500;
@@ -265,10 +265,10 @@ body.pricing-page {
 .pm-close:hover { color: #0f0c09; }
 .pm-eyebrow {
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #a37c3a;
+  color: var(--bk-gold-text);
   margin-bottom: 6px;
 }
 .pm-title {
@@ -306,10 +306,10 @@ body.pricing-page {
 .pm-quote { margin-top: 10px; padding: 12px; background: #fffdf8; border: 1px solid rgba(15, 12, 9, 0.14); font-size: 0.86rem; }
 .pm-strong { font-weight: 700; }
 .pm-discount { color: #4a5a3f; font-weight: 700; }
-.pm-final { color: #a37c3a; }
+.pm-final { color: var(--bk-gold-text); }
 .pm-row { display: flex; justify-content: space-between; padding: 3px 0; }
 .pm-total { border-top: 1px solid rgba(15, 12, 9, 0.2); margin-top: 8px; padding-top: 10px; }
-.pm-total strong { color: #a37c3a; }
+.pm-total strong { color: var(--bk-gold-text); }
 .pm-muted { color: #6d6358; font-size: 0.84rem; }
 .pm-center { text-align: center; margin-bottom: 12px; }
 .pm-qr { max-width: 280px; width: 100%; border: 1px solid rgba(15, 12, 9, 0.2); padding: 8px; background: #fff; }
@@ -359,7 +359,7 @@ body.pricing-page {
   color: #0f0c09;
 }
 [data-theme="dark"] .pricing-footer-brand { color: #f5f2eb; }
-.pricing-footer a { color: #a37c3a; text-decoration: none; }
+.pricing-footer a { color: var(--bk-gold-text); text-decoration: none; }
 
 @media (max-width: 768px) {
   .pricing-nav-links a:not(.btn):not(.active) { display: none; }

@@ -9,10 +9,12 @@
      [data-theme="dark"] below. Single accent: champagne gold. */
   --hp-accent: #c19856;
   --hp-accent-hover: #a37c3a;
+  --hp-accent-text: #7d5f2c; /* Darker gold for text on light backgrounds - meets WCAG AA 4.5:1 */
   --hp-accent-soft: rgba(193, 152, 86, 0.14);
   --hp-ink-indigo: #8a7a52;
   --hp-ink-indigo-soft: rgba(138, 122, 82, 0.12);
   --hp-ink-gold: #a37c3a;
+  --hp-ink-gold-text: #7d5f2c; /* Darker gold for text on light backgrounds */
   --hp-ink-gold-soft: rgba(163, 124, 58, 0.12);
   --hp-ink-teal: #6f7a5e;
   --hp-ink-teal-soft: rgba(111, 122, 94, 0.12);
@@ -38,13 +40,13 @@
   --hp-shadow: 0 1px 0 rgba(15, 12, 9, 0.04), 0 16px 40px rgba(15, 12, 9, 0.1);
   --hp-shadow-lg: 0 2px 0 rgba(15, 12, 9, 0.04), 0 28px 70px rgba(15, 12, 9, 0.16);
   --hp-transition: 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  --hp-transition-spring: 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+  --hp-transition-spring: 0.6s cubic-bezier(0.16, 1, 0.3, 1);
   --hp-section-bloom: radial-gradient(ellipse 70% 40% at 50% 0%, rgba(193, 152, 86, 0.12) 0%, transparent 70%);
   --hp-seam: 1px dashed rgba(163, 124, 58, 0.55);
   --hp-seam-light: rgba(15, 12, 9, 0.22);
   --hp-ease-exit: cubic-bezier(0.4, 0, 1, 1);
   --hp-ease-enter: cubic-bezier(0, 0, 0.2, 1);
-  --hp-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --hp-ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
 
   /* motion system � award-winning easing & durations */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
@@ -57,10 +59,12 @@
 [data-theme="dark"] {
   --hp-accent: #d5b178;
   --hp-accent-hover: #c19856;
+  --hp-accent-text: #d5b178; /* In dark mode, accent-text is the bright gold */
   --hp-accent-soft: rgba(213, 177, 120, 0.16);
   --hp-ink-indigo: #b3a071;
   --hp-ink-indigo-soft: rgba(179, 160, 113, 0.14);
   --hp-ink-gold: #d5b178;
+  --hp-ink-gold-text: #d5b178; /* In dark mode, ink-gold-text is the bright gold */
   --hp-ink-gold-soft: rgba(213, 177, 120, 0.14);
   --hp-ink-teal: #9aa27e;
   --hp-ink-teal-soft: rgba(154, 162, 126, 0.14);
@@ -95,15 +99,15 @@
 body.home-page {
   background: var(--hp-bg);
   color: var(--hp-text);
-  font-family: 'Archivo', sans-serif;
+  font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
   transition: background-color var(--hp-transition), color var(--hp-transition);
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
 }
 
-/* keep the homepage on a single sans family (Archivo) */
+/* Homepage buttons speak in DM Mono (process role) */
 body.home-page .btn {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
 }
 
 /* ============================================================
@@ -421,7 +425,7 @@ body.home-page .btn {
   align-items: center;
   gap: 10px;
   text-decoration: none;
-  font-family: 'Archivo', sans-serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 1.05rem;
   font-weight: 800;
   color: var(--hp-text);
@@ -513,7 +517,7 @@ body.home-page .btn {
 
 .nav-cta {
   padding: 10px 20px;
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 0.82rem;
   font-weight: 700;
   color: #fff7ee;
@@ -773,10 +777,9 @@ body.home-page .footer {
 }
 
 .hero-title {
-  font-family: 'Fraunces', serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: clamp(3rem, 7vw, 5.5rem);
   font-weight: 700;
-  font-variation-settings: 'opsz' 100, 'wght' 700;
   line-height: 1.04;
   letter-spacing: -0.035em;
   color: #fffdf6;
@@ -830,7 +833,7 @@ body.home-page .footer {
   align-items: center;
   gap: 10px;
   padding: 16px 32px;
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 0.95rem;
   font-weight: 700;
   color: #fff7ee;
@@ -965,7 +968,7 @@ body.home-page .footer {
 }
 
 .hero-mockup-status {
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: var(--hp-accent);
   padding: 4px 10px;
@@ -1059,7 +1062,7 @@ body.home-page .footer {
 }
 
 .hero-mockup-price {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 0.9rem;
   font-weight: 800;
   color: var(--hp-accent);
@@ -1097,7 +1100,7 @@ body.home-page .footer {
 
 .hero-float-count {
   font-variant-numeric: tabular-nums;
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-weight: 800;
   color: var(--hp-accent);
 }
@@ -1113,7 +1116,7 @@ body.home-page .footer {
 }
 
 .hero-float-price {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-weight: 800;
   color: var(--hp-accent);
 }
@@ -1137,7 +1140,7 @@ body.home-page .footer {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.65rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: white;
   border: 2px solid var(--hp-bg);
@@ -1240,7 +1243,7 @@ body.home-page .footer {
 }
 
 .stat-value {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 2rem;
   font-weight: 800;
   color: var(--hp-accent);
@@ -1297,7 +1300,7 @@ body.home-page .footer {
 }
 
 .section-title {
-  font-family: 'Fraunces', serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: clamp(2.1rem, 4vw, 3rem);
   font-weight: 600;
   color: var(--hp-text);
@@ -1397,7 +1400,7 @@ body.home-page .footer {
 }
 
 .feature-card h3 {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--hp-text);
@@ -1443,9 +1446,10 @@ body.home-page .footer {
 }
 
 .how-step-number {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-style: italic;
   font-size: 3.5rem;
-  font-weight: 900;
+  font-weight: 500;
   line-height: 1;
   margin-bottom: 16px;
   letter-spacing: -0.06em;
@@ -1491,7 +1495,7 @@ body.home-page .footer {
 }
 
 .how-step h3 {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 1.1rem;
   font-weight: 700;
   color: var(--hp-text);
@@ -1560,7 +1564,7 @@ body.home-page .footer {
 }
 
 .gallery-empty h3 {
-  font-family: 'Fraunces', serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: 1.5rem;
   color: var(--hp-text);
   margin: 0;
@@ -1698,7 +1702,7 @@ body.home-page .footer {
   top: 10px;
   right: 10px;
   padding: 4px 10px;
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -1795,7 +1799,7 @@ body.home-page .footer {
 }
 
 .studio-preview-status {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--hp-accent);
   display: flex;
@@ -1853,7 +1857,7 @@ body.home-page .footer {
 
 .studio-preview-style {
   padding: 5px 10px;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: var(--hp-text-muted);
   background: var(--hp-bg-subtle);
@@ -2042,7 +2046,7 @@ body.home-page .footer {
 }
 
 .cta-title {
-  font-family: 'Fraunces', serif;
+  font-family: 'Playfair Display', Georgia, serif;
   font-size: clamp(2.1rem, 5vw, 3.1rem);
   font-weight: 600;
   color: var(--hp-text);
@@ -2124,7 +2128,7 @@ body.home-page .footer {
 }
 
 .footer-grid h4 {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 0.82rem;
   font-weight: 700;
   color: var(--hp-text);
@@ -2161,7 +2165,7 @@ body.home-page .footer {
   border-top: 1px solid var(--hp-border);
   max-width: 1100px;
   margin: 0 auto;
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 0.78rem;
   color: var(--hp-text-muted);
 }
@@ -2262,7 +2266,7 @@ body.home-page .footer {
   }
   .home-page .nav-actions .btn-ghost {
     padding: 8px 12px;
-    font-size: 0.68rem;
+    font-size: 0.72rem;
   }
 }
 
@@ -2458,7 +2462,7 @@ body.home-page .footer {
 .collection-tag {
   align-self: flex-start;
   padding: 4px 10px;
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -2663,7 +2667,7 @@ body.home-page .footer {
 }
 
 .marquee-group span:not(.marquee-star) {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -2679,7 +2683,7 @@ body.home-page .footer {
 }
 
 .marquee-group .marquee-count {
-  font-family: 'Archivo', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
   font-size: 1.05rem;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -3217,7 +3221,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
   box-shadow: 0 10px 30px rgba(15, 12, 9, 0.06);
 }
 .nav-link {
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.18em;
   text-transform: uppercase;
   background: transparent;
@@ -3228,7 +3232,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
   color: var(--hp-bg);
   border: 1px solid var(--hp-text);
   border-bottom-width: 1px;
-  font-size: 0.68rem;
+  font-size: 0.72rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   font-weight: 500;
@@ -3261,7 +3265,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
 .hero-left { position: relative; z-index: 2; }
 .hero-badge {
   font-family: 'DM Mono', monospace;
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--hp-accent-hover);
@@ -3334,7 +3338,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   padding: 14px 20px;
   background: transparent;
 }
@@ -3377,7 +3381,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
 
 /* ---------- Section headers: serif + mono eyebrow ---------- */
 .section-badge {
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   background: transparent;
@@ -3487,7 +3491,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
   color: var(--hp-bg);
   border-radius: 2px;
   font-family: 'DM Mono', monospace;
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -3621,7 +3625,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
 }
 .footer-grid h4 {
   font-family: 'DM Mono', monospace;
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
   color: var(--hp-text-tertiary);
@@ -3721,7 +3725,8 @@ body.home-page .nav-logo-accent { font-style: normal; }
 .hero-mockup-price,
 .hero-float-count,
 .hero-float-price {
-  font-family: 'Manrope', sans-serif;
+  font-family: 'DM Mono', 'SFMono-Regular', Menlo, monospace;
+  font-variant-numeric: tabular-nums;
   color: var(--hp-accent-hover);
 }
-.hero-mockup-tag { letter-spacing: 0.14em; text-transform: uppercase; font-size: 0.62rem; }
+.hero-mockup-tag { letter-spacing: 0.14em; text-transform: uppercase; font-size: 0.72rem; }

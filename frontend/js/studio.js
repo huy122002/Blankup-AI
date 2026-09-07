@@ -11,6 +11,91 @@ const PRODUCT_LABELS = { tshirt: 'T-Shirt Custom AI', hoodie: 'Hoodie Custom AI'
 const BANK_TRANSFER_INFO = { bankId: '970422', bankName: 'MB Bank', accountName: 'LE LY HUY', accountNumber: '0967145402', template: 'compact2' };
 
 /* ============================================================
+   HARDEN — production guards (errors, i18n, edge cases)
+   Keeps incumbent behavior; adds limits, inline errors,
+   debouncing, safe storage, and resilient gallery states.
+   ============================================================ */
+const HARDEN_LIMITS = {
+  promptMax: 2000,
+  promptMin: 3,
+  ideaMax: 1000,
+  customTextMax: 60,
+  nameMax: 100,
+  phoneMax: 20,
+  addressMax: 500,
+  noteMax: 500,
+  qtyMin: 1,
+  qtyMax: 100,
+};
+
+function debounce(fn, wait = 180) {
+  let t = null;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+
+function safeGet(key, fallback = null) {
+  try { return localStorage.getItem(key); }
+  catch { return fallback; }
+}
+
+function safeSet(key, value) {
+  try { localStorage.setItem(key, value); return true; }
+  catch { return false; }
+}
+
+function currentLang() {
+  try {
+    if (typeof i18n !== 'undefined' && i18n.lang) return i18n.lang;
+    return document.documentElement.getAttribute('data-lang') || document.documentElement.lang || 'vi';
+  } catch { return 'vi'; }
+}
+
+function setFieldError(inputEl, errorEl, message) {
+  if (errorEl) {
+    if (!message) { errorEl.hidden = true; errorEl.textContent = ''; }
+    else { errorEl.hidden = false; errorEl.textContent = message; }
+  }
+  if (inputEl) {
+    if (!message) inputEl.removeAttribute('aria-invalid');
+    else inputEl.setAttribute('aria-invalid', 'true');
+  }
+}
+
+function normalizeVnPhone(raw) {
+  return String(raw || '').replace(/[\s.\-()]/g, '');
+}
+
+function isValidVnPhone(raw) {
+  const p = normalizeVnPhone(raw);
+  return /^(\+?84|0)[3-9]\d{8}$/.test(p);
+}
+
+const IMAGE_FALLBACK_SVG =
+  'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><rect width="200" height="200" fill="#ece4d3"/><g fill="none" stroke="#8e7657" stroke-width="2"><rect x="40" y="50" width="120" height="100" rx="4"/><circle cx="75" cy="80" r="8"/><path d="M40 130l35-30 25 20 30-25 30 30v25H40z" fill="#c19856" opacity="0.35"/></g></svg>`
+  );
+
+function handleImgError(img) {
+  if (!img || img.dataset.fbk) return;
+  img.dataset.fbk = '1';
+  img.src = IMAGE_FALLBACK_SVG;
+}
+
+function syncPressed(containerId, selector, activeEl) {
+  const c = document.getElementById(containerId);
+  if (!c) return;
+  c.querySelectorAll(selector).forEach(b => {
+    const on = b === activeEl;
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    if (on) b.classList.add('active');
+    else if (b.dataset.role !== 'keep') b.classList.remove('active');
+  });
+}
+
+/* ============================================================
    STATE
    ============================================================ */
 const state = {
@@ -167,7 +252,23 @@ function scheduleViewerUpdate() {
    ============================================================ */
 function escapeHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 function escapeAttr(s) { return String(s || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
-function formatPrice(v) { return v.toLocaleString('vi-VN') + '₫'; }
+function formatPrice(v) {
+  const lang = currentLang() === 'en' ? 'en-US' : 'vi-VN';
+  try {
+    return new Intl.NumberFormat(lang, { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(Number(v) || 0);
+  } catch {
+    return (Number(v) || 0).toLocaleString('vi-VN') + '₫';
+  }
+}
+function formatDateTime(ts) {
+  const lang = currentLang() === 'en' ? 'en-US' : 'vi-VN';
+  try {
+    return new Intl.DateTimeFormat(lang, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(ts));
+  } catch {
+    const time = new Date(ts);
+    return time.toLocaleDateString('vi-VN') + ' ' + time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+  }
+}
 function isLightColor(hex) { const c = hex.replace('#', ''); const r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16); return (r * 299 + g * 587 + b * 114) / 1000 > 128; }
 function lightenColor(hex, pct) { const c = hex.replace('#', ''); let r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16); r = Math.min(255, r + Math.round((255 - r) * pct / 100)); g = Math.min(255, g + Math.round((255 - g) * pct / 100)); b = Math.min(255, b + Math.round((255 - b) * pct / 100)); return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`; }
 function darkenColor(hex, pct) { const c = hex.replace('#', ''); let r = parseInt(c.substr(0, 2), 16), g = parseInt(c.substr(2, 2), 16), b = parseInt(c.substr(4, 2), 16); r = Math.max(0, r - Math.round(r * pct / 100)); g = Math.max(0, g - Math.round(g * pct / 100)); b = Math.max(0, b - Math.round(b * pct / 100)); return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`; }
@@ -186,7 +287,7 @@ function showButtonSuccess(btn, label = '✓ Thành công') {
   const textEl = btn.querySelector('.generate-btn-text') || btn.querySelector('.btn-label') || btn;
   const original = textEl ? textEl.textContent : btn.textContent;
   if (textEl) textEl.textContent = label;
-  if (!reduce) btn.animate([{transform:'scale(1)'},{transform:'scale(1.02)'},{transform:'scale(1)'}], {duration:240, easing:'cubic-bezier(0.34,1.56,0.64,1)'});
+  if (!reduce) btn.animate([{transform:'scale(1)'},{transform:'scale(1.02)'},{transform:'scale(1)'}], {duration:240, easing:'cubic-bezier(0.16,1,0.3,1)'});
   setTimeout(()=> {
     btn.classList.remove('is-success');
     if (textEl) textEl.textContent = original;
@@ -224,13 +325,27 @@ function isStudioAuthenticated() {
 }
 
 window._studioAuthPromptShown = window._studioAuthPromptShown || false;
+// A11y: move focus into the auth dialog (non-critical, never throws).
+// Standalone (not inside showStudioAuthPrompt) because the inline entry-guard
+// in studio.html can show the modal directly while the dedup flag suppresses
+// showStudioAuthPrompt — focus must still be ensured on every entry path.
+function ensureAuthModalFocus() {
+  try {
+    const modal = document.getElementById('authRequiredModal');
+    if (!modal || modal.style.display !== 'flex') return;
+    if (document.activeElement && modal.contains(document.activeElement)) return;
+    modal.querySelector('.auth-modal-btn-primary')?.focus();
+  } catch {}
+}
 function showStudioAuthPrompt(reason = 'login-required') {
-  if (window._studioAuthPromptShown) return;
+  if (window._studioAuthPromptShown) { ensureAuthModalFocus(); return; }
   window._studioAuthPromptShown = true;
   const modal = document.getElementById('authRequiredModal');
   if (modal) {
     modal.style.display = 'flex';
     document.body.style.overflow = 'hidden';
+    setTimeout(ensureAuthModalFocus, 60);
+    setTimeout(ensureAuthModalFocus, 600);
   }
   if (window.showToast) {
     window.showToast('Vui lòng đăng nhập để sử dụng Studio.', 'warning', 5000);
@@ -351,7 +466,7 @@ function startGenProgress() {
 }
 
 function updateGenProgressUI(pct, msg) {
-  if (genProgress.fill) genProgress.fill.style.width = pct + '%';
+  if (genProgress.fill) genProgress.fill.style.transform = `scaleX(${(Math.max(0, Math.min(100, Number(pct) || 0)) / 100).toFixed(4)})`;
   if (genProgress.percentEl) genProgress.percentEl.textContent = pct + '%';
   if (genProgress.messageEl && msg) genProgress.messageEl.textContent = msg;
 }
@@ -808,16 +923,27 @@ async function openPrintPreview() {
   document.getElementById('psTotal').textContent = formatPrice(price * state.quantity);
 
   const thumb = document.getElementById('printSheetDesign');
-  thumb.src = frontUrl;
+  if (thumb) {
+    if (frontUrl) { thumb.style.visibility = ''; thumb.src = frontUrl; }
+    else { thumb.removeAttribute('src'); thumb.style.visibility = 'hidden'; }
+  }
 
   const frontSheet = await buildPrintSheetMockup(frontUrl || null);
-  document.getElementById('printSheetMockup').src = frontSheet;
+  const frontImg = document.getElementById('printSheetMockup');
+  if (frontImg) {
+    if (frontSheet) { frontImg.style.visibility = ''; frontImg.src = frontSheet; }
+    else { frontImg.removeAttribute('src'); frontImg.style.visibility = 'hidden'; }
+  }
 
   const backBox = document.getElementById('printSheetBack');
   if (hasBack && backBox) {
     const backComposite = await buildSideComposite('back');
     const backSheet = await buildPrintSheetMockup(backComposite || null);
-    backBox.querySelector('img').src = backSheet;
+    const backImg = backBox.querySelector('img');
+    if (backImg) {
+      if (backSheet) { backImg.style.visibility = ''; backImg.src = backSheet; }
+      else { backImg.removeAttribute('src'); backImg.style.visibility = 'hidden'; }
+    }
     backBox.style.display = '';
   } else if (backBox) {
     backBox.style.display = 'none';
@@ -939,9 +1065,10 @@ function announceFreshResult() {
 function initTabs() {
   document.querySelectorAll('.toolbar-tab').forEach(tab => {
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.toolbar-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.toolbar-tab').forEach(t => { t.classList.remove('active'); t.setAttribute('aria-selected', 'false'); });
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
       const panel = document.querySelector(`.tab-panel[data-panel="${tab.dataset.tab}"]`);
       if (panel) panel.classList.add('active');
     });
@@ -953,9 +1080,11 @@ function initTabs() {
    ============================================================ */
 function initStyleSelector() {
   document.querySelectorAll('.style-chip').forEach(btn => {
+    if (!btn.hasAttribute('aria-pressed')) btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.style-chip').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.style-chip').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       state.selectedStyle = btn.dataset.style;
     });
   });
@@ -1005,6 +1134,8 @@ function initUpload() {
   function showPreview(file) {
     const reader = new FileReader();
     reader.onload = e => {
+      previewImg.style.visibility = '';
+      previewImg.removeAttribute('hidden');
       previewImg.src = e.target.result;
       preview.style.display = 'block';
       dropzone.style.display = 'none';
@@ -1074,6 +1205,16 @@ function initUpload() {
   // File picker
   fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
+  // Broken preview file (e.g. corrupt data URL): fall back to dropzone, never a broken box
+  previewImg?.addEventListener('error', () => {
+    state.uploadedFile = null;
+    try { previewImg.removeAttribute('src'); } catch {}
+    preview.style.display = 'none';
+    dropzone.style.display = 'flex';
+    setIdle();
+    if (window.showToast) window.showToast('Không đọc được ảnh này. Hãy thử file PNG/JPG/WEBP khác.', 'warning');
+  });
+
   // Remove → IDLE with fade out
   if (removeBtn) removeBtn.addEventListener('click', () => {
     state.uploadedFile = null;
@@ -1107,8 +1248,9 @@ function initColorPicker() {
   if (!options) return;
   options.querySelectorAll('.color-dot').forEach(btn => {
     btn.addEventListener('click', () => {
-      options.querySelectorAll('.color-dot').forEach(b => b.classList.remove('active'));
+      options.querySelectorAll('.color-dot').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       state.selectedColor = btn.dataset.color;
       updateMockupColor();
     });
@@ -1145,12 +1287,14 @@ function initProductTypeSelector() {
   if (!options) return;
   syncProductAvailabilityBadges();
   options.querySelectorAll('.product-type-btn').forEach(btn => {
+    if (!btn.hasAttribute('aria-pressed')) btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
     btn.addEventListener('click', () => {
       const pt = btn.dataset.productType;
       if (!PRODUCT_PRICES[pt] || pt === state.selectedProductType) return;
       state.selectedProductType = pt;
-      options.querySelectorAll('.product-type-btn').forEach(b => b.classList.remove('active'));
+      options.querySelectorAll('.product-type-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       updatePrice();
       updateMockupColor();
       // 3D model switch is registry-driven. Unavailable garments (no real
@@ -1176,8 +1320,9 @@ function initSizeSelector() {
   if (!options) return;
   options.querySelectorAll('.size-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      options.querySelectorAll('.size-btn').forEach(b => b.classList.remove('active'));
+      options.querySelectorAll('.size-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       state.selectedSize = btn.dataset.size;
     });
   });
@@ -1191,8 +1336,19 @@ function initQuantity() {
   const plus = document.getElementById('qtyPlus');
   const display = document.getElementById('qtyValue');
   if (!minus || !plus || !display) return;
-  minus.addEventListener('click', () => { if (state.quantity > 1) { state.quantity--; display.textContent = state.quantity; updatePrice(); } });
-  plus.addEventListener('click', () => { if (state.quantity < 100) { state.quantity++; display.textContent = state.quantity; updatePrice(); } });
+  const render = () => {
+    state.quantity = Math.min(HARDEN_LIMITS.qtyMax, Math.max(HARDEN_LIMITS.qtyMin, Number(state.quantity) || 1));
+    display.textContent = state.quantity;
+    display.setAttribute('aria-label', `Số lượng: ${state.quantity}`);
+    minus.disabled = state.quantity <= HARDEN_LIMITS.qtyMin;
+    plus.disabled = state.quantity >= HARDEN_LIMITS.qtyMax;
+    minus.setAttribute('aria-disabled', String(minus.disabled));
+    plus.setAttribute('aria-disabled', String(plus.disabled));
+    updatePrice();
+  };
+  minus.addEventListener('click', () => { if (state.quantity > HARDEN_LIMITS.qtyMin) { state.quantity--; render(); } });
+  plus.addEventListener('click', () => { if (state.quantity < HARDEN_LIMITS.qtyMax) { state.quantity++; render(); } });
+  render();
 }
 
 /* ============================================================
@@ -1265,7 +1421,11 @@ async function enhancePrompt() {
    ============================================================ */
 const HISTORY_KEY = 'blankup_design_history';
 function getHistory() {
-  try { return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]'); } catch { return []; }
+  try {
+    const raw = safeGet(HISTORY_KEY, '[]');
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
 }
 function saveToHistory(design) {
   if (!design || design.isDraft) return;
@@ -1287,7 +1447,8 @@ function saveToHistory(design) {
   };
   history.unshift(entry);
   if (history.length > 20) history.length = 20;
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); }
+  catch { /* private mode: history stays in-memory for this session */ }
   renderHistory();
 }
 function renderHistory() {
@@ -1296,19 +1457,22 @@ function renderHistory() {
   const history = getHistory();
   if (history.length === 0) { list.innerHTML = '<div style="padding:8px 12px;font-size:0.78rem;color:var(--s-text-muted);">Chưa có thiết kế nào</div>'; return; }
   list.innerHTML = history.map(h => {
-    const time = new Date(h.timestamp);
-    const timeStr = time.toLocaleDateString('vi-VN') + ' ' + time.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
-    return `<div class="history-item" data-id="${escapeAttr(h.id)}">
-      <img class="history-item-thumb" src="${escapeAttr(h.designUrl || h.frontDesignUrl)}" alt="">
+    const timeStr = formatDateTime(h.timestamp);
+    return `<div class="history-item" data-id="${escapeAttr(h.id)}" tabindex="0" role="button" aria-label="Khôi phục thiết kế ${escapeAttr((h.prompt || 'Untitled').slice(0, 60))}">
+      <img class="history-item-thumb" src="${escapeAttr(h.designUrl || h.frontDesignUrl)}" alt="" loading="lazy" onerror="this.dataset.fbk='1';this.src='${IMAGE_FALLBACK_SVG}'">
       <div class="history-item-info">
         <div class="history-item-prompt">${escapeHtml(h.prompt || 'Untitled')}</div>
         <div class="history-item-time">${timeStr}</div>
       </div>
-      <button class="history-item-delete" title="Xoá">✕</button>
+      <button class="history-item-delete" title="Xoá" aria-label="Xoá thiết kế khỏi lịch sử" type="button">✕</button>
     </div>`;
   }).join('');
 
   list.querySelectorAll('.history-item').forEach(item => {
+    const activate = async () => item.click();
+    item.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); }
+    });
     item.addEventListener('click', async (e) => {
       if (e.target.closest('.history-item-delete')) return;
       const id = item.dataset.id;
@@ -1345,7 +1509,7 @@ function renderHistory() {
       const id = item?.dataset.id;
       if (!id) return;
       const h = getHistory().filter(x => x.id !== id);
-      localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+      safeSet(HISTORY_KEY, JSON.stringify(h));
       renderHistory();
     });
   });
@@ -1388,9 +1552,19 @@ function initGenerateButtons() {
 
 async function generateFromPrompt(targetSide = 'front') {
   if (requireAuth()) return;
-  const prompt = document.getElementById('promptInput')?.value?.trim();
+  if (state.isGeneratingAi) { showToast('AI đang tạo mẫu trước đó — vui lòng đợi hoàn tất.', 'info'); return; }
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    showToast('Bạn đang ngoại tuyến. Hãy kết nối mạng rồi thử lại.', 'error', 5000);
+    return;
+  }
+  const inputEl = document.getElementById('promptInput');
+  const prompt = inputEl?.value?.trim() || '';
+  const errEl = document.getElementById('promptError');
   const _genBtnEarly = document.getElementById('generatePromptBtn');
-  if (!prompt) { if(_genBtnEarly) shakeButton(_genBtnEarly); showToast('Vui lòng nhập mô tả thiết kế!', 'warning'); return; }
+  if (!prompt) { if(_genBtnEarly) shakeButton(_genBtnEarly); setFieldError(inputEl, errEl, 'Vui lòng nhập mô tả thiết kế (tối thiểu 3 ký tự).'); showToast('Vui lòng nhập mô tả thiết kế!', 'warning'); return; }
+  if (prompt.length < HARDEN_LIMITS.promptMin) { if(_genBtnEarly) shakeButton(_genBtnEarly); setFieldError(inputEl, errEl, `Mô tả quá ngắn (${prompt.length}/${HARDEN_LIMITS.promptMin} ký tự tối thiểu).`); return; }
+  if (prompt.length > HARDEN_LIMITS.promptMax) { if(_genBtnEarly) shakeButton(_genBtnEarly); setFieldError(inputEl, errEl, `Mô tả quá dài (${prompt.length}/${HARDEN_LIMITS.promptMax}). Hãy rút gọn.`); showToast(`Prompt vượt quá ${HARDEN_LIMITS.promptMax} ký tự.`, 'warning'); return; }
+  setFieldError(inputEl, errEl, '');
   const btn = document.getElementById('generatePromptBtn');
   const isBack = targetSide === 'back';
   updateActionButtons(false);
@@ -1567,9 +1741,11 @@ async function generateFromImage() {
    ============================================================ */
 function initViewToggle() {
   document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    if (!btn.hasAttribute('aria-pressed')) btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.view-toggle-btn').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       setViewerSide(btn.dataset.view);
     });
   });
@@ -1586,7 +1762,11 @@ function setViewerSide(side) {
   commitActivePlacements();
   state.currentView = next;
   loadPlacementsForSide(next);
-  document.querySelectorAll('.view-toggle-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.view === next));
+  document.querySelectorAll('.view-toggle-btn').forEach(btn => {
+    const on = btn.dataset.view === next;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
   try { window.tshirt360Viewer?.showSide?.(next); } catch (e) { /* */ }
   if (state.cssViewer) { next === 'back' ? state.cssViewer.showBack() : state.cssViewer.showFront(); }
   syncPlacementInputs();
@@ -1659,15 +1839,23 @@ async function refreshSideViews() {
 
 function initPrintControls() {
   const textInputs = [document.getElementById('customTextInput'), document.getElementById('customTextInputImage')].filter(Boolean);
+  const applyCustomText = debounce((sourceInput) => {
+    let raw = sourceInput.value || '';
+    if (raw.length > HARDEN_LIMITS.customTextMax) {
+      raw = raw.slice(0, HARDEN_LIMITS.customTextMax);
+      sourceInput.value = raw;
+      showToast(`Chữ/slogan giới hạn ${HARDEN_LIMITS.customTextMax} ký tự để không tràn bản in.`, 'warning');
+    }
+    state.customText = raw.trim().slice(0, HARDEN_LIMITS.customTextMax);
+    state.customTextSides[sideKey()] = state.customText;
+    textInputs.forEach(o => { if (o !== sourceInput) o.value = sourceInput.value; });
+    state.compositeCacheKey = '';
+    updateDesignOverlayForSide();
+    applyCurrentDesignToViewer();
+  }, 160);
   textInputs.forEach(input => {
-    input.addEventListener('input', () => {
-      state.customText = input.value.trim();
-      state.customTextSides[sideKey()] = state.customText;
-      textInputs.forEach(o => { if (o !== input) o.value = input.value; });
-      state.compositeCacheKey = '';
-      updateDesignOverlayForSide();
-      applyCurrentDesignToViewer();
-    });
+    input.setAttribute('maxlength', String(HARDEN_LIMITS.customTextMax));
+    input.addEventListener('input', () => applyCustomText(input));
   });
 
   // Image placement — always edits the SELECTED layer (never the whole side).
@@ -1960,32 +2148,63 @@ function initOrderFlow() {
   const form = document.getElementById('orderForm');
   const closeBtn = document.getElementById('modalClose');
   const closeBtn2 = document.getElementById('orderCloseBtn');
+  let lastFocus = null;
+
+  const openModal = () => {
+    lastFocus = document.activeElement;
+    modal?.classList.add('active');
+    setTimeout(() => document.getElementById('orderName')?.focus(), 60);
+  };
+  const closeModal = () => {
+    modal?.classList.remove('active');
+    if (lastFocus && lastFocus.focus) { try { lastFocus.focus(); } catch {} }
+  };
 
   document.getElementById('orderBtn')?.addEventListener('click', () => {
     if (requireAuth()) return;
-    if (!state.currentDesign) return;
+    if (!state.currentDesign && !hasFrontContent() && !hasBackContent()) { showToast('Hãy tạo thiết kế trước khi đặt hàng.', 'warning'); return; }
     updateOrderSummary();
     if (auth.isLoggedIn()) {
       const nameInput = document.getElementById('orderName');
       if (nameInput && !nameInput.value) nameInput.value = auth.user?.fullName || auth.user?.username || '';
     }
-    modal?.classList.add('active');
+    openModal();
   });
 
-  closeBtn?.addEventListener('click', () => modal?.classList.remove('active'));
-  closeBtn2?.addEventListener('click', () => { modal?.classList.remove('active'); resetOrderModal(); });
-  modal?.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('active'); });
+  closeBtn?.addEventListener('click', closeModal);
+  closeBtn2?.addEventListener('click', () => { closeModal(); resetOrderModal(); });
+  modal?.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (modal?.classList.contains('active')) closeModal();
+    const pp = document.getElementById('printPreviewModal');
+    if (pp?.classList.contains('active')) closePrintPreview();
+  });
 
   // Payment method
   document.querySelectorAll('.payment-method-option').forEach(btn => {
+    if (!btn.hasAttribute('aria-pressed')) btn.setAttribute('aria-pressed', btn.classList.contains('active') ? 'true' : 'false');
     btn.addEventListener('click', () => {
-      document.querySelectorAll('.payment-method-option').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.payment-method-option').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); });
       btn.classList.add('active');
+      btn.setAttribute('aria-pressed', 'true');
       state.selectedPaymentMethod = btn.dataset.paymentMethod || 'COD';
     });
   });
 
   form?.addEventListener('submit', e => { e.preventDefault(); submitOrder(); });
+  // Clear inline errors on input
+  ['orderName', 'orderPhone', 'orderAddress'].forEach(id => {
+    document.getElementById(id)?.addEventListener('input', (e) => {
+      e.target.removeAttribute('aria-invalid');
+      const err = document.getElementById(id + 'Error');
+      if (err) { err.hidden = true; err.textContent = ''; }
+    });
+  });
+  document.getElementById('orderNote')?.addEventListener('input', (e) => {
+    const c = document.getElementById('orderNoteCount');
+    if (c) c.textContent = `${e.target.value.length} / ${HARDEN_LIMITS.noteMax}`;
+  });
 }
 
 function updateOrderSummary() {
@@ -2010,16 +2229,27 @@ function resetOrderModal() {
 
 async function submitOrder() {
   const submitBtn = document.getElementById('orderSubmitBtn');
-  const name = document.getElementById('orderName')?.value?.trim();
-  const phone = document.getElementById('orderPhone')?.value?.trim();
-  const address = document.getElementById('orderAddress')?.value?.trim();
-  const note = document.getElementById('orderNote')?.value?.trim();
+  const nameEl = document.getElementById('orderName');
+  const phoneEl = document.getElementById('orderPhone');
+  const addressEl = document.getElementById('orderAddress');
+  const noteEl = document.getElementById('orderNote');
+  const name = nameEl?.value?.trim() || '';
+  const phone = phoneEl?.value?.trim() || '';
+  const address = addressEl?.value?.trim() || '';
+  const note = (noteEl?.value || '').slice(0, HARDEN_LIMITS.noteMax).trim();
 
-  if (!name || !phone || !address) { shakeButton(submitBtn); showToast('Vui lòng điền đầy đủ thông tin!', 'warning'); return; }
-  if (!/^(\+?84|0)[3-9]\d{8}$/.test(phone.replace(/[\s.\-]/g, ''))) { shakeButton(submitBtn); showToast('Số điện thoại không hợp lệ!', 'warning'); return; }
+  let firstInvalid = null;
+  if (!name) { setFieldError(nameEl, document.getElementById('orderNameError'), 'Vui lòng nhập họ tên (tối đa 100 ký tự).'); firstInvalid = firstInvalid || nameEl; }
+  else if (name.length > HARDEN_LIMITS.nameMax) { setFieldError(nameEl, document.getElementById('orderNameError'), `Họ tên quá dài (${name.length}/${HARDEN_LIMITS.nameMax}).`); firstInvalid = firstInvalid || nameEl; }
+  if (!phone) { setFieldError(phoneEl, document.getElementById('orderPhoneError'), 'Vui lòng nhập số điện thoại.'); firstInvalid = firstInvalid || phoneEl; }
+  else if (!isValidVnPhone(phone)) { setFieldError(phoneEl, document.getElementById('orderPhoneError'), 'Số điện thoại không hợp lệ. VD: 0912345678 hoặc +84912345678.'); firstInvalid = firstInvalid || phoneEl; }
+  if (!address) { setFieldError(addressEl, document.getElementById('orderAddressError'), 'Vui lòng nhập địa chỉ giao hàng.'); firstInvalid = firstInvalid || addressEl; }
+  else if (address.length > HARDEN_LIMITS.addressMax) { setFieldError(addressEl, document.getElementById('orderAddressError'), `Địa chỉ quá dài (${address.length}/${HARDEN_LIMITS.addressMax}).`); firstInvalid = firstInvalid || addressEl; }
+  if (firstInvalid) { shakeButton(submitBtn); firstInvalid.focus(); showToast('Vui lòng kiểm tra lại thông tin giao hàng.', 'warning'); return; }
 
+  const originalBtnHtml = submitBtn.innerHTML;
   submitBtn.disabled = true;
-  submitBtn.textContent = 'Đang xử lý…';
+  submitBtn.innerHTML = 'Đang xử lý…';
   submitBtn.classList.add('is-loading');
   submitBtn.style.willChange = 'transform';
 
@@ -2053,8 +2283,10 @@ async function submitOrder() {
       headers: { 'Content-Type': 'application/json', Authorization: auth.token ? `Bearer ${auth.token}` : '' },
       body: JSON.stringify(orderData),
     }, 15000);
-    const data = await resp.json();
-    if (!resp.ok || data.success === false) throw new Error(data.error || 'Đặt hàng thất bại.');
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 401) { showToast('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', 'warning', 5000); showStudioAuthPrompt('expired'); throw new Error('Unauthorized'); }
+    if (resp.status === 429) throw new Error('Bạn thao tác quá nhanh. Vui lòng đợi 30 giây rồi thử lại.');
+    if (!resp.ok || data.success === false) throw new Error(data.error || `Đặt hàng thất bại (HTTP ${resp.status}).`);
 
     const orderId = data.orderId || 'BU-' + Date.now();
     const payment = data.payment || state.selectedPaymentMethod;
@@ -2069,7 +2301,7 @@ async function submitOrder() {
           headers: { 'Content-Type': 'application/json', Authorization: auth.token ? `Bearer ${auth.token}` : '' },
           body: JSON.stringify({ orderId, paymentMethod: 'VNPAY' }),
         }, 12000);
-        const payData = await payResp.json();
+        const payData = await payResp.json().catch(() => ({}));
         if (payData.success && payData.paymentUrl) {
           window.location.href = payData.paymentUrl;
           return;
@@ -2082,7 +2314,7 @@ async function submitOrder() {
         showToast(msg, 'error');
       } finally {
         submitBtn.disabled = false;
-        submitBtn.textContent = 'Xác nhận đặt hàng';
+        submitBtn.innerHTML = originalBtnHtml;
         submitBtn.classList.remove('is-loading');
         submitBtn.style.willChange = '';
       }
@@ -2092,12 +2324,15 @@ async function submitOrder() {
     showOrderSuccess(orderId, payment, data.transferContent);
     showButtonSuccess(submitBtn, '✓ Đã đặt');
   } catch (e) {
-    shakeButton(submitBtn);
-    const msg = e && e.name === 'TimeoutError' ? 'Đặt hàng quá hạn (mạng chậm). Kiểm tra Tài khoản → Đơn hàng trước khi đặt lại.' : (e.message || 'Đặt hàng thất bại. Thử lại sau.');
-    showToast(msg, 'error', 7000);
+    if (e?.message === 'Unauthorized') { /* auth prompt already shown */ }
+    else {
+      shakeButton(submitBtn);
+      const msg = e && e.name === 'TimeoutError' ? 'Đặt hàng quá hạn (mạng chậm). Kiểm tra Tài khoản → Đơn hàng trước khi đặt lại.' : (e.message || 'Đặt hàng thất bại. Thử lại sau.');
+      showToast(msg, 'error', 7000);
+    }
   } finally {
     submitBtn.disabled = false;
-    submitBtn.textContent = 'Xác nhận đặt hàng';
+    if (submitBtn.innerHTML === 'Đang xử lý…') submitBtn.innerHTML = originalBtnHtml;
     submitBtn.classList.remove('is-loading');
     submitBtn.style.willChange = '';
   }
@@ -2113,7 +2348,8 @@ function showOrderSuccess(orderId, payment, transferContent) {
     box.style.display = 'block';
     const amount = PRODUCT_PRICES[state.selectedProductType] * state.quantity;
     const qrUrl = `https://img.vietqr.io/image/${BANK_TRANSFER_INFO.bankId}-${BANK_TRANSFER_INFO.accountNumber}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(transferContent || orderId)}&accountName=${encodeURIComponent(BANK_TRANSFER_INFO.accountName)}`;
-    document.getElementById('successQrImage').src = qrUrl;
+    const qrImg = document.getElementById('successQrImage');
+    if (qrImg) { qrImg.style.visibility = ''; qrImg.src = qrUrl; }
     document.getElementById('successBankName').textContent = BANK_TRANSFER_INFO.bankName;
     document.getElementById('successAccountName').textContent = BANK_TRANSFER_INFO.accountName;
     document.getElementById('successAccountNumber').textContent = BANK_TRANSFER_INFO.accountNumber;
@@ -2134,23 +2370,29 @@ function initDownload() {
     if (requireAuth()) return;
     // Download what is actually on the current side (full composition).
     const url = await buildSideComposite(state.currentView) || getActiveDesignUrl();
-    if (!url) return;
+    if (!url) { showToast('Chưa có thiết kế để tải.', 'warning'); return; }
     const link = document.createElement('a');
     if (url.startsWith('data:')) {
-      link.href = url; link.download = `blankup-design-${Date.now()}.svg`;
+      const isPng = url.startsWith('data:image/png');
+      const isJpeg = url.startsWith('data:image/jpeg') || url.startsWith('data:image/jpg');
+      const ext = isPng ? 'png' : isJpeg ? 'jpg' : url.includes('svg') ? 'svg' : 'png';
+      link.href = url; link.download = `blankup-design-${Date.now()}.${ext}`;
       document.body.appendChild(link); link.click(); document.body.removeChild(link);
       return;
     }
     try {
       const resp = await fetch(url);
-      if (!resp.ok) throw new Error('Download failed');
+      if (!resp.ok) throw new Error(`Download failed (HTTP ${resp.status})`);
       const blob = await resp.blob();
-      const ext = blob.type.includes('png') ? 'png' : 'jpg';
+      const ext = blob.type.includes('png') ? 'png' : blob.type.includes('svg') ? 'svg' : 'jpg';
       const objUrl = URL.createObjectURL(blob);
       link.href = objUrl; link.download = `blankup-design-${Date.now()}.${ext}`;
       document.body.appendChild(link); link.click(); document.body.removeChild(link);
-      URL.revokeObjectURL(objUrl);
-    } catch { window.open(url, '_blank'); }
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+    } catch {
+      showToast('Không tải trực tiếp được — đang mở ảnh ở tab mới.', 'info');
+      window.open(url, '_blank', 'noopener');
+    }
   });
 }
 
@@ -2200,60 +2442,130 @@ function initShareDesign() {
    COMMUNITY GALLERY
    ============================================================ */
 function getUserId() {
-  return auth.user?.id || ('guest_' + (localStorage.getItem('guest_id') || (() => { const id = Date.now().toString(36); localStorage.setItem('guest_id', id); return id; })()));
+  try {
+    if (auth.user?.id) return auth.user.id;
+    let gid = null;
+    try { gid = localStorage.getItem('guest_id'); } catch { gid = null; }
+    if (!gid) {
+      gid = Date.now().toString(36);
+      try { localStorage.setItem('guest_id', gid); } catch { /* private mode */ }
+    }
+    return 'guest_' + gid;
+  } catch {
+    return 'guest_' + Date.now().toString(36);
+  }
+}
+
+function renderCommunityState(kind, message) {
+  const box = document.getElementById('communityState');
+  const grid = document.getElementById('communityGrid');
+  if (!box) return;
+  if (kind === 'hide') { box.hidden = true; if (grid) grid.setAttribute('aria-busy', 'false'); return; }
+  box.hidden = false;
+  if (grid) grid.setAttribute('aria-busy', kind === 'loading' ? 'true' : 'false');
+  if (kind === 'loading') {
+    box.innerHTML = `<div class="skeleton-row" aria-hidden="true"><span></span><span></span><span></span><span></span></div><p class="field-hint">Đang tải thiết kế cộng đồng…</p>`;
+  } else if (kind === 'empty') {
+    box.innerHTML = `<p class="field-hint">${escapeHtml(message || 'Chưa có thiết kế cộng đồng nào. Hãy là người đầu tiên chia sẻ!')}</p>`;
+  } else if (kind === 'error') {
+    box.innerHTML = `<p class="field-hint">${escapeHtml(message || 'Không tải được thư viện cộng đồng. Kiểm tra mạng rồi thử lại.')}</p><button class="community-retry-btn" id="communityRetry" type="button">Thử lại</button>`;
+    document.getElementById('communityRetry')?.addEventListener('click', () => loadCommunityDesigns());
+  }
 }
 
 async function loadCommunityDesigns() {
   const grid = document.getElementById('communityGrid');
   if (!grid) return;
+  renderCommunityState('loading');
   let designs;
   try {
-    const resp = await fetch(`${API_BASE}/ai-design/gallery`);
-    if (!resp.ok) throw new Error('Failed');
+    const resp = await (window.fetchWithTimeout
+      ? window.fetchWithTimeout(`${API_BASE}/ai-design/gallery`, {}, 12000)
+      : fetch(`${API_BASE}/ai-design/gallery`));
+    if (!resp.ok) {
+      if (resp.status === 429) throw new Error('Cộng đồng đang quá tải (429). Vui lòng thử lại sau.');
+      throw new Error(`Không tải được thư viện (HTTP ${resp.status}).`);
+    }
     const result = await resp.json();
-    designs = result.data || [];
-  } catch { return; }
+    designs = result.data || result.designs || [];
+  } catch (e) {
+    grid.innerHTML = '';
+    renderCommunityState('error', e?.message || 'Không tải được thư viện cộng đồng.');
+    return;
+  }
+
+  if (!Array.isArray(designs) || !designs.length) {
+    grid.innerHTML = '';
+    renderCommunityState('empty');
+    return;
+  }
+  renderCommunityState('hide');
 
   const userId = getUserId();
+  // Cap initial render for large galleries: first 48, rest on demand via “Xem thêm”.
+  const PAGE = 48;
+  let shown = designs.slice(0, PAGE);
 
-  grid.innerHTML = designs.map(d => {
+  const cardHtml = (d) => {
     const previewUrl = d.frontDesignUrl || d.designUrl || '';
-    const liked = d.likedBy?.includes(userId);
+    const liked = Array.isArray(d.likedBy) && d.likedBy.includes(userId);
+    const promptShort = String(d.prompt || '').slice(0, 80);
     return `<div class="community-card" data-id="${escapeAttr(d.designId || '')}">
-      <div class="community-card-img-wrap" data-url="${escapeAttr(previewUrl)}" data-prompt="${escapeAttr(d.prompt || '')}" data-style="${escapeAttr(d.style || '')}" data-author="${escapeAttr(d.author || 'Anonymous')}" data-back="${escapeAttr(d.backDesignUrl || '')}">
-        <img class="community-card-img" src="${escapeAttr(previewUrl)}" alt="${escapeAttr(d.prompt || '')}" loading="lazy">
+      <div class="community-card-img-wrap" data-url="${escapeAttr(previewUrl)}" data-prompt="${escapeAttr(d.prompt || '')}" data-style="${escapeAttr(d.style || '')}" data-author="${escapeAttr(d.author || 'Anonymous')}" data-back="${escapeAttr(d.backDesignUrl || '')}" tabindex="0" role="button" aria-label="Thêm mẫu ${escapeAttr(promptShort || 'cộng đồng')} vào áo">
+        <img class="community-card-img" src="${escapeAttr(previewUrl)}" alt="${escapeAttr(promptShort || 'Thiết kế cộng đồng')}" loading="lazy" onerror="this.dataset.fbk='1';this.src='${IMAGE_FALLBACK_SVG}'">
       </div>
       <div class="community-card-info">
         <div class="community-card-prompt">"${escapeHtml(d.prompt || '')}"</div>
         <div class="community-card-meta">
           <span class="community-card-author" data-author="${escapeAttr(d.author || 'Anonymous')}"><svg class="community-author-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ${escapeHtml(d.author || 'Anonymous')}</span>
-          <button class="community-card-like ${liked ? 'liked' : ''}" data-id="${escapeAttr(d.designId || '')}" data-likes="${d.likes || 0}">
+          <button class="community-card-like ${liked ? 'liked' : ''}" data-id="${escapeAttr(d.designId || '')}" data-likes="${d.likes || 0}" aria-pressed="${liked ? 'true' : 'false'}" aria-label="Thích thiết kế, hiện có ${d.likes || 0} lượt thích" type="button">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="${liked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
             <span>${d.likes || 0}</span>
           </button>
         </div>
       </div>
     </div>`;
-  }).join('');
+  };
+
+  grid.innerHTML = shown.map(cardHtml).join('') + (designs.length > PAGE ? `<div class="community-state" id="communityMoreWrap"><button class="community-retry-btn" id="communityMore" type="button">Xem thêm (${designs.length - PAGE} mẫu)</button></div>` : '');
 
   grid.querySelectorAll('.community-card-img-wrap').forEach(wrap => {
-    wrap.addEventListener('click', () => {
+    const pick = () => {
+      if (!wrap.dataset.url) { showToast('Mẫu này thiếu ảnh xem trước.', 'warning'); return; }
       state.currentDesign = { success: true, designId: 'community-' + Date.now(), designUrl: wrap.dataset.url, frontDesignUrl: wrap.dataset.url, backDesignUrl: wrap.dataset.back, prompt: wrap.dataset.prompt, style: wrap.dataset.style, author: wrap.dataset.author };
       // Additive like every other source: community picks join the layers.
       showDesignOnMockup(wrap.dataset.url, null, null, undefined, { name: String(wrap.dataset.prompt || 'Cộng đồng').slice(0, 24), designId: state.currentDesign.designId, prompt: wrap.dataset.prompt, style: wrap.dataset.style });
       const pi = document.getElementById('promptInput');
-      if (pi && wrap.dataset.prompt) pi.value = wrap.dataset.prompt;
+      if (pi && wrap.dataset.prompt) { pi.value = wrap.dataset.prompt; pi.dispatchEvent(new Event('input')); }
       const sb = document.querySelector(`.style-chip[data-style="${wrap.dataset.style}"]`);
-      if (sb) { document.querySelectorAll('.style-chip').forEach(b => b.classList.remove('active')); sb.classList.add('active'); state.selectedStyle = wrap.dataset.style; }
+      if (sb) { document.querySelectorAll('.style-chip').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-pressed', 'false'); }); sb.classList.add('active'); sb.setAttribute('aria-pressed', 'true'); state.selectedStyle = wrap.dataset.style; }
       showToast('Đã thêm mẫu cộng đồng vào áo.', 'success');
-    });
+    };
+    wrap.addEventListener('click', pick);
+    wrap.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
   });
 
-  grid.querySelectorAll('.community-card-like').forEach(btn => {
+  document.getElementById('communityMore')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    const rest = designs.slice(PAGE).map(cardHtml).join('');
+    btn.closest('#communityMoreWrap')?.remove();
+    grid.insertAdjacentHTML('beforeend', rest);
+    // Rebind new nodes (simple: reload bindings for all — idempotent for old nodes? use fresh query for new only via delegation fallback: reload whole gallery bindings by re-calling lightweight binder)
+    loadCommunityBindings(grid, userId);
+  });
+
+  loadCommunityBindings(grid, userId);
+}
+
+function loadCommunityBindings(grid, userId) {
+  grid.querySelectorAll('.community-card-like:not([data-bound])').forEach(btn => {
+    btn.dataset.bound = '1';
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const designId = btn.dataset.id;
-      if (!designId) return;
+      if (!designId || btn.disabled) return;
+      btn.disabled = true;
       try {
         const resp = await fetch(`${API_BASE}/ai-design/${encodeURIComponent(designId)}/like`, {
           method: 'POST',
@@ -2263,12 +2575,17 @@ async function loadCommunityDesigns() {
         const data = await resp.json();
         if (data.success) {
           btn.classList.toggle('liked', data.liked);
+          btn.setAttribute('aria-pressed', data.liked ? 'true' : 'false');
+          btn.setAttribute('aria-label', `Thích thiết kế, hiện có ${data.likes} lượt thích`);
           const heart = btn.querySelector('svg');
           if (heart) heart.setAttribute('fill', data.liked ? 'currentColor' : 'none');
           const label = btn.querySelector('span');
           if (label) label.textContent = data.likes;
+        } else {
+          showToast('Không thể thích mẫu lúc này. Thử lại sau.', 'warning');
         }
-      } catch { /* silently fail */ }
+      } catch { showToast('Mất kết nối — không thể thích mẫu.', 'warning'); }
+      finally { btn.disabled = false; }
     });
   });
 }

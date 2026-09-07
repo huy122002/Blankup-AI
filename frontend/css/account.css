@@ -14,17 +14,17 @@ body .navbar .navbar-logo {
   font-style: italic;
   font-weight: 600;
 }
-body .navbar .navbar-logo .logo-highlight { color: #a37c3a; font-style: normal; }
+body .navbar .navbar-logo .logo-highlight { color: var(--bk-gold-text); font-style: normal; }
 body .navbar .avatar-circle { background: #0f0c09; color: #f5f2eb; }
 body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
 .account-header { margin-bottom: 36px; max-width: 1240px; }
 .account-header .tag {
   margin-bottom: 16px;
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
-  color: #a37c3a;
+  color: var(--bk-gold-text);
   border: none;
   padding: 0;
   display: inline-flex;
@@ -37,7 +37,7 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
   letter-spacing: -0.03em;
   line-height: 1;
 }
-.account-title .accent { color: #a37c3a; font-style: italic; }
+.account-title .accent { color: var(--bk-gold-text); font-style: italic; }
 .account-subtitle { color: #6d6358; margin-top: 10px; font-size: 0.95rem; }
 
 /* ---------- Tabs: mono underline ---------- */
@@ -63,7 +63,7 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
   transition: color 0.25s;
 }
 .account-tab:hover { color: #0f0c09; }
-.account-tab.active { color: #a37c3a; border-bottom-color: #c19856; }
+.account-tab.active { color: var(--bk-gold-text); border-bottom-color: var(--bk-gold); }
 .account-panel { display: none; }
 .account-panel.active { display: block; animation: accountFadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1); }
 @keyframes accountFadeIn {
@@ -94,7 +94,7 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
 .account-form label {
   display: block;
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.64rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   color: #6d6358;
@@ -141,7 +141,7 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
 .account-meta-row:last-child { border-bottom: none; }
 .account-meta-label {
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.66rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: #6d6358;
@@ -165,7 +165,7 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
 }
 .account-summary-label {
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.62rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: #6d6358;
@@ -199,7 +199,7 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
 .account-badge {
   display: inline-block;
   font-family: var(--bk-font-mono, monospace);
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.1em;
   padding: 5px 10px;
@@ -233,14 +233,14 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
   font-family: var(--bk-font-display, serif);
 }
 .account-credit-icon.credit-in { background: rgba(74, 90, 63, 0.12); color: #4a5a3f; border: 1px solid rgba(74, 90, 63, 0.3); }
-.account-credit-icon.credit-out { background: rgba(193, 152, 86, 0.12); color: #a37c3a; border: 1px solid rgba(193, 152, 86, 0.35); }
+.account-credit-icon.credit-out { background: var(--bk-gold-soft); color: var(--bk-gold-text); border: 1px solid rgba(193, 152, 86, 0.35); }
 .account-credit-info { flex: 1; min-width: 0; }
 .account-credit-title { font-weight: 600; font-size: 0.92rem; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .account-credit-note { font-weight: 400; font-size: 0.8rem; color: #6d6358; }
 .account-credit-date { font-size: 0.76rem; color: #8e7657; margin-top: 2px; font-family: var(--bk-font-mono, monospace); }
 .account-credit-amount { font-weight: 700; font-size: 1rem; font-variant-numeric: tabular-nums; font-family: var(--bk-font-mono, monospace); }
 .account-credit-amount.credit-in-text { color: #4a5a3f; }
-.account-credit-amount.credit-out-text { color: #a37c3a; }
+.account-credit-amount.credit-out-text { color: var(--bk-gold-text); }
 .account-empty {
   text-align: center;
   padding: 60px 20px;
@@ -249,7 +249,7 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
   border: 1px dashed rgba(15, 12, 9, 0.3);
   border-radius: 3px;
 }
-.account-empty a { color: #a37c3a; font-weight: 600; }
+.account-empty a { color: var(--bk-gold-text); font-weight: 600; }
 .account-empty-hero { background: transparent; padding: 72px 24px; display: flex; flex-direction: column; align-items: center; gap: 8px; }
 .account-empty-hero svg { color: #c19856; opacity: 0.9; margin-bottom: 10px; }
 .account-empty-title {
@@ -300,10 +300,10 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
 .account-plan-name { font-family: var(--bk-font-display, serif); font-size: 1.15rem; font-weight: 500; margin-bottom: 4px; }
 .account-plan-desc { font-size: 0.8rem; color: #6d6358; line-height: 1.5; margin-bottom: 8px; }
 .account-plan-credits { display: flex; gap: 10px; font-size: 0.74rem; font-weight: 600; font-family: var(--bk-font-mono, monospace); }
-.plan-credit-high { color: #a37c3a; }
+.plan-credit-high { color: var(--bk-gold-text); }
 .plan-credit-low { color: #6f7a5e; }
 .account-plan-action { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; margin-left: 16px; }
-.account-plan-price { font-family: var(--bk-font-mono, monospace); font-weight: 500; font-size: 1rem; color: #a37c3a; font-variant-numeric: tabular-nums; }
+.account-plan-price { font-family: var(--bk-font-mono, monospace); font-weight: 500; font-size: 1rem; color: var(--bk-gold-text); font-variant-numeric: tabular-nums; }
 .plan-buy-btn { white-space: nowrap; }
 
 /* ---------- Purchase modal (ids mirror pricing.js contract) ---------- */
