@@ -118,7 +118,7 @@ body.admin-theme textarea:focus {
 }
 
 .admin-badge {
-  font-size: 11px;
+font-size: 0.75rem;
   color: var(--accent);
   text-transform: uppercase;
   letter-spacing: 1.5px;
@@ -358,8 +358,8 @@ body.admin-theme textarea:focus {
 }
 
 .revenue-chart-label {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
+font-family: var(--font-mono);
+font-size: 0.75rem;
   color: var(--text-muted, #837b6b);
 }
 
@@ -1133,7 +1133,7 @@ body.admin-theme textarea:focus {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 0.75rem;
   color: #fff;
   background: var(--accent);
   flex-shrink: 0;
@@ -1181,7 +1181,7 @@ body.admin-theme textarea:focus {
   position: absolute;
   top: 10px;
   right: 10px;
-  font-size: 11px;
+  font-size: 0.75rem;
   font-weight: 700;
 }
 
@@ -1245,19 +1245,19 @@ body.admin-theme .dashboard-card {
   border: 1px solid rgba(15, 12, 9, 0.14);
 }
 body.admin-theme table th {
-  font-family: 'DM Mono', monospace;
-  font-size: 0.66rem;
+font-family: 'DM Mono', monospace;
+font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   background: #0f0c09;
   color: #f5f2eb;
 }
 body.admin-theme .btn-primary {
-  background: #0f0c09;
-  border-color: #0f0c09;
-  border-radius: 2px;
-  font-family: 'DM Mono', monospace;
-  font-size: 0.68rem;
+background: #0f0c09;
+border-color: #0f0c09;
+border-radius: 2px;
+font-family: 'DM Mono', monospace;
+font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
