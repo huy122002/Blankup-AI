@@ -257,3 +257,11 @@ Concrete visual guardrails grounded in the incumbent implementation.
 - **Don't** set body copy in Playfair, headlines in all-caps sans, or buttons/prices in non-mono proportional type — the serif/sans/mono roles are fixed.
 - **Don't** hide the native cursor, block pointer events with grain/spotlight overlays, or ship hover-only meaning without a focus/keyboard equivalent.
 - **Don't** hard-code prices, credits, or plan copy into styles or markup — pricing renders from `GET /api/ai-plans`, and Vietnamese + English strings stay in markup/JS, not in CSS.
+
+## Intent Registry
+
+Deliberate exceptions detectors must not file as defects (recorded per critique review):
+
+- **Gold glow is an intentional atelier signal** — a warm `rgba(193,152,86,.45-.55)` halo is allowed on primary-CTA hover only (hero, generate, order). Everywhere else, flat hairline *or* Lift shadow, never both, never static glow.
+- **Product hex colors are commerce data, not chrome** — shirt swatches (`#ffffff`, `#000000`, `#1e293b`, …), status dots, and category bars carry product/order meaning with adjacent text labels, so they are exempt from the single-accent rule. UI chrome itself stays ink/paper/gold.
+- **Disabled studio actions must explain themselves** (agreed direction, not yet implemented) — Order/Download/Preview/Share stay disabled until a design exists; a visible hint plus `aria-disabled` context will be added so the gate is never a dead end.
