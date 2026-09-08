@@ -3682,3 +3682,158 @@ a:focus-visible {
 .bank-transfer-qr img[src=""] {
   visibility: hidden;
 }
+
+/* ============================================================
+   ADAPT (Desktop → Mobile rethink) — studio single-column,
+   thumb-first, touch-native. Preserves committed world:
+   warm paper, ink CTAs, gold accent, mono-for-process.
+   ============================================================ */
+
+/* Safe areas + no horizontal overflow (notch, home indicator) */
+html, body { overflow-x: clip; }
+body {
+  padding-left: env(safe-area-inset-left, 0);
+  padding-right: env(safe-area-inset-right, 0);
+}
+.studio-main { overflow-x: clip; }
+
+/* Touch: kill 300ms delay, keep vertical scroll on canvas */
+button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
+.size-btn, .qty-btn, .placement-preset-btn, .product-type-btn {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.canvas-wrapper { touch-action: pan-y; }
+
+/* Input method, not just screen size: coarse pointers get room */
+@media (pointer: coarse) {
+  .style-chip, .product-type-btn, .size-btn,
+  .placement-preset-btn, .view-toggle-btn {
+    min-height: 44px;
+  }
+  .color-dot { width: 44px; height: 44px; }
+  .qty-btn { width: 48px; height: 48px; }
+  .qty-value { line-height: 48px; min-width: 52px; }
+  .toolbar-tab { min-height: 48px; }
+  .canvas-ctrl-btn { min-height: 44px; min-width: 44px; }
+  .action-btn { min-height: 48px; }
+}
+
+/* No hover on touch: hover lifts become active feedback only */
+@media (hover: none) {
+  .style-chip:hover, .product-type-btn:hover, .size-btn:hover,
+  .action-btn:hover:not(:disabled), .color-dot:hover,
+  .community-card:hover, .layer-row:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  .style-chip:active, .product-type-btn:active, .size-btn:active,
+  .action-btn:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  .community-card:hover .community-card-img { transform: none; }
+}
+/* Fine pointers keep the atelier lift */
+@media (hover: hover) and (pointer: fine) {
+  .style-chip:hover { transform: translateY(-2px); }
+  .action-btn:hover:not(:disabled) { transform: translateY(-1px); }
+}
+
+/* Sliders: 44px hit area, gold thumb stays */
+.placement-sliders input[type="range"] {
+  min-height: 44px;
+  width: 100%;
+}
+.placement-sliders input[type="range"]::-webkit-slider-thumb {
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+}
+.placement-sliders input[type="range"]::-moz-range-thumb {
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  border-radius: 50%;
+}
+
+/* Progressive disclosure on mobile: suggestions become a
+   horizontal swipe row instead of a tall wrapping wall */
+@media (max-width: 768px) {
+  .prompt-suggestions {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 6px;
+    scroll-snap-type: x proximity;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .prompt-suggestions::-webkit-scrollbar { display: none; }
+  .prompt-suggestion-chip {
+    flex: 0 0 auto;
+    scroll-snap-align: start;
+    min-height: 44px;
+    max-width: 220px;
+  }
+  .product-type-row, .size-row {
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .product-type-row::-webkit-scrollbar,
+  .size-row::-webkit-scrollbar { display: none; }
+  .product-type-btn, .size-btn { flex: 0 0 auto; min-width: 64px; }
+
+  /* Thumb-zone: order actions stick to bottom within thumb reach */
+  .studio-right .actions-section {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    background: var(--s-card);
+    border-top: 1px solid var(--s-border);
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0));
+    margin: 0 calc(var(--s-space-5) * -1);
+    padding-left: var(--s-space-5);
+    padding-right: var(--s-space-5);
+  }
+  #orderBtn { min-height: 52px; }
+
+  /* Order dialog becomes a bottom sheet, not a centered modal */
+  #orderModal .modal,
+  #printPreviewModal .print-preview-panel {
+    width: 100%;
+    max-width: 100%;
+    margin: auto 0 0;
+    border-radius: 4px 4px 0 0;
+    max-height: 92dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #orderModal.modal-overlay.active,
+  #printPreviewModal.print-preview-overlay.active {
+    align-items: flex-end;
+    padding: 0;
+  }
+  .payment-method-options { grid-template-columns: 1fr; }
+
+  /* Toolbar: snap between Prompt / Image / Templates */
+  .studio-toolbar-inner { scroll-snap-type: x proximity; }
+  .toolbar-tab { scroll-snap-align: start; }
+}
+
+/* Small phones: canvas yields to controls, community stays 2-up */
+@media (max-width: 480px) {
+  .canvas-wrapper {
+    height: min(42vh, 380px);
+    min-height: 280px;
+  }
+  .community-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .studio-left, .studio-right { padding-bottom: max(12px, env(safe-area-inset-bottom, 0)); }
+}
+
+/* Landscape phones: sticky canvas must not swallow the viewport */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+  .studio-canvas { position: static; }
+  .canvas-wrapper { height: 72vh; min-height: 260px; }
+  .studio-right .actions-section { position: static; }
+}
