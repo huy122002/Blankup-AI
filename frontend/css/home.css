@@ -2754,7 +2754,7 @@ transform-style: preserve-3d;
   color: #fff;
   font-size: 0.85rem;
   font-weight: 700;
-  border-radius: 0 0 8px 8px;
+  border-radius: 0 0 4px 4px;
   text-decoration: none;
   transition: top 0.2s ease;
 }
@@ -3249,7 +3249,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
   background: var(--hp-accent);
   border-color: var(--hp-accent);
   color: #0f0c09;
-  box-shadow: 0 0 26px rgba(193, 152, 86, 0.4);
+  box-shadow: var(--hp-shadow);
 }
 [data-theme="dark"] .nav { background: rgba(20, 17, 13, 0.82); }
 [data-theme="dark"] .nav.scrolled { background: rgba(20, 17, 13, 0.94); }
@@ -3325,7 +3325,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
   text-transform: uppercase;
   font-size: 0.78rem;
   padding: 19px 34px;
-  box-shadow: 0 10px 34px rgba(15, 12, 9, 0.28), 0 0 0 1px rgba(193, 152, 86, 0.35);
+  box-shadow: 0 10px 34px rgba(15, 12, 9, 0.28);
   position: relative;
 }
 .hero-btn-primary:hover {
@@ -3541,7 +3541,7 @@ body.home-page .nav-logo-accent { font-style: normal; }
   background: #26221c;
 }
 .collection-card:hover {
-  transform: translateY(-10px);
+  transform: translateY(-6px);
   box-shadow: 0 28px 70px rgba(0, 0, 0, 0.45);
   border-color: rgba(193, 152, 86, 0.5);
 }
@@ -3579,7 +3579,6 @@ body.home-page .nav-logo-accent { font-style: normal; }
 /* ---------- Reviews: editorial pull-quote track ---------- */
 .review-card {
   border: 1px solid var(--hp-border);
-  border-left: 2px solid var(--hp-accent);
   border-radius: 2px;
   background: var(--hp-card);
 }

@@ -619,3 +619,12 @@ img:not([src]) {
 @keyframes bkCharIn {
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* Browser surfaces — carry the atelier into native chrome (visual-only) */
+input, textarea, [contenteditable] { caret-color: var(--bk-gold-deep, #a37c3a); }
+a, .bk-underline { text-underline-offset: 3px; }
+.price-value, .stat-value, .hero-mockup-price, .bk-tabular { font-variant-numeric: tabular-nums; }
+* { scrollbar-width: thin; scrollbar-color: rgba(15, 12, 9, 0.28) transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: rgba(15, 12, 9, 0.22); border-radius: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }

@@ -497,7 +497,7 @@
 .prompt-enhance-btn:hover {
   background: var(--s-accent-glow-strong);
   transform: translateY(-1px);
-  box-shadow: var(--s-shadow-glow);
+  box-shadow: var(--s-shadow-sm);
 }
 
 .prompt-enhance-btn:active {
@@ -687,14 +687,14 @@
   background: #c19856;
   border-color: #c19856;
   color: #0f0c09;
-  box-shadow: 0 6px 20px rgba(193, 152, 86, 0.4);
+  box-shadow: 0 6px 20px rgba(193, 152, 86, 0.5);
 }
 
 .generate-btn:hover::before { opacity: 1; }
 
 .generate-btn:active {
   transform: translateY(0) scale(0.98);
-  box-shadow: 0 2px 8px rgba(193, 152, 86, 0.3);
+  box-shadow: 0 2px 8px rgba(15, 12, 9, 0.25);
 }
 
 .generate-btn.loading {
@@ -1398,7 +1398,7 @@
   width: 44px;
   height: 44px;
   object-fit: cover;
-  border-radius: 8px;
+  border-radius: 3px;
   border: 1px solid var(--s-border);
   flex-shrink: 0;
 }
@@ -1434,7 +1434,7 @@
   align-items: center;
   justify-content: center;
   font-size: 0.72rem;
-  border-radius: 8px;
+  border-radius: 2px;
   border: 1px solid var(--s-border);
   background: transparent;
   color: var(--s-text-secondary);
@@ -1500,7 +1500,7 @@
 
 .placement-slider-group input[type="range"]::-webkit-slider-thumb:hover {
   transform: scale(1.2);
-  box-shadow: 0 2px 8px rgba(193, 152, 86, 0.4);
+  box-shadow: 0 1px 4px rgba(15, 12, 9, 0.25);
 }
 
 /* ============================================================
@@ -1792,7 +1792,7 @@
   border-color: #c19856;
   color: #0f0c09;
   transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(193, 152, 86, 0.4);
+  box-shadow: 0 6px 20px rgba(193, 152, 86, 0.5);
 }
 
 .action-btn-primary:active:not(:disabled) {
@@ -1949,7 +1949,7 @@
 
 .modal {
   background: var(--s-card);
-  border-radius: var(--s-radius-xl);
+  border-radius: var(--s-radius-md);
   max-width: 480px;
   width: 100%;
   max-height: 85vh;
@@ -2068,7 +2068,6 @@
 .payment-method-option.active {
   border-color: var(--s-accent-text);
   background: var(--s-accent-glow);
-  box-shadow: var(--s-shadow-glow);
 }
 
 .payment-method-icon {
@@ -2186,7 +2185,7 @@
 
 .auth-modal {
   background: var(--s-card);
-  border-radius: var(--s-radius-xl);
+  border-radius: var(--s-radius-md);
   max-width: 420px;
   width: 100%;
   overflow: hidden;
@@ -2250,7 +2249,7 @@
   background: #c19856;
   border-color: #c19856;
   color: #0f0c09;
-  box-shadow: 0 6px 20px rgba(193, 152, 86, 0.4);
+  box-shadow: 0 4px 16px rgba(15, 12, 9, 0.25);
 }
 
 .auth-modal-btn-secondary {
@@ -2367,7 +2366,7 @@
   background: #c19856;
   border-color: #c19856;
   color: #0f0c09;
-  box-shadow: 0 4px 12px rgba(193, 152, 86, 0.4);
+  box-shadow: 0 4px 14px rgba(15, 12, 9, 0.25);
 }
 
 .btn-secondary {
@@ -2488,7 +2487,7 @@
 
 .gen-progress-card {
   background: var(--s-card);
-  border-radius: var(--s-radius-xl);
+  border-radius: var(--s-radius-md);
   padding: var(--s-space-8) var(--s-space-8) var(--s-space-6);
   max-width: 420px;
   width: 100%;
@@ -2740,7 +2739,6 @@
 }
 .onboarding-dot.active {
   background: var(--s-accent);
-  box-shadow: 0 0 6px rgba(255,107,0,0.5);
   width: 24px;
   border-radius: 4px;
 }
@@ -2798,7 +2796,7 @@
   background: #c19856;
   border-color: #c19856;
   color: #0f0c09;
-  box-shadow: 0 6px 20px rgba(193, 152, 86, 0.4);
+  box-shadow: 0 4px 14px rgba(15, 12, 9, 0.25);
 }
 
 @media (max-width: 768px) {
@@ -2867,7 +2865,7 @@
   background: #c19856;
   border-color: #c19856;
   color: #0f0c09;
-  box-shadow: 0 4px 12px rgba(193, 152, 86, 0.4);
+  box-shadow: 0 4px 12px rgba(15, 12, 9, 0.25);
 }
 
 /* ============================================================

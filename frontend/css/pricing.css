@@ -109,7 +109,7 @@ body.pricing-page {
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.6s, background 0.4s;
 }
 [data-theme="dark"] .pricing-card { background: #1d1b18; }
-.pricing-card:hover { transform: translateY(-10px); box-shadow: 0 24px 60px rgba(15, 12, 9, 0.14); background: #f7f1e3; z-index: 2; }
+.pricing-card:hover { transform: translateY(-6px); box-shadow: 0 24px 60px rgba(15, 12, 9, 0.14); background: #f7f1e3; z-index: 2; }
 [data-theme="dark"] .pricing-card:hover { background: #26221c; }
 .pricing-card.featured { background: #0f0c09; color: #f5f2eb; }
 .pricing-card.featured:hover { background: #1a1512; }
