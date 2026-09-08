@@ -106,19 +106,23 @@ function renderDesigns(designs) {
   grid.innerHTML = designs.map(d => `
     <a class="creator-design-card" href="/studio.html?designUrl=${encodeURIComponent(d.designUrl || '')}&prompt=${encodeURIComponent(d.prompt || '')}&style=${encodeURIComponent(d.style || 'abstract')}&author=${encodeURIComponent(d.author || '')}">
       <div class="creator-design-thumb">
-        <img src="${escapeHtml(d.designUrl)}" alt="Thiết kế ${escapeHtml(d.prompt || '')}" loading="lazy">
+        <img src="${escapeHtml(d.designUrl)}" alt="Thiết kế ${escapeHtml(String(d.prompt || '').slice(0, 80))}" loading="lazy">
         <div class="creator-design-likes"><svg class="creator-likes-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg> <span>${Number(d.likes) || 0}</span></div>
       </div>
       <div class="creator-design-body">
-        <p class="creator-design-prompt">${escapeHtml((d.prompt || '').slice(0, 60))}</p>
+        <p class="creator-design-prompt">${escapeHtml((d.prompt || '').slice(0, 120))}</p>
         <span class="creator-design-date">${formatJoinDate(d.sharedAt)}</span>
       </div>
     </a>
   `).join('');
 }
 
+let followBusy = false;
 async function toggleFollow() {
+  if (followBusy) return;
   const btn = document.getElementById('creatorFollowBtn');
+  followBusy = true;
+  if (btn) btn.disabled = true;
   try {
     const resp = await fetch(`${API_BASE}/users/${encodeURIComponent(creatorData.user.username)}/follow`, {
       method: 'POST',
@@ -138,6 +142,9 @@ async function toggleFollow() {
     console.error('Follow error:', err);
     // UX reliability: follow action must never fail silently
     if (window.showToast) window.showToast('Không thể cập nhật theo dõi. Vui lòng thử lại.', 'error');
+  } finally {
+    followBusy = false;
+    if (btn) btn.disabled = false;
   }
 }
 

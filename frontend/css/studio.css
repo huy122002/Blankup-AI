@@ -334,6 +334,10 @@
   cursor: pointer;
   transition: all var(--s-transition);
   white-space: nowrap;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   position: relative;
 }
 
@@ -449,6 +453,8 @@
   resize: vertical;
   transition: all var(--s-transition);
   box-sizing: border-box;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
 }
 
 .prompt-input:hover {
@@ -527,6 +533,8 @@
   border-radius: var(--s-radius);
   transition: all var(--s-transition);
   box-sizing: border-box;
+  overflow-wrap: anywhere;
+  unicode-bidi: plaintext;
 }
 
 .text-input:hover {
@@ -1126,6 +1134,10 @@
   letter-spacing: 0.05em;
   text-transform: uppercase;
   white-space: nowrap;
+  max-width: 86%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
   color: #111827;
   text-shadow: 0 0 8px rgba(255, 255, 255, 0.92), 0 2px 14px rgba(255, 255, 255, 0.75);
   transform: translate(calc(-50% + var(--text-x, 0%)), calc(-50% + var(--text-y, 0%))) scale(var(--text-scale, 1));
@@ -1401,10 +1413,14 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .layer-meta {
   font-size: 0.72rem;
   color: var(--s-text-muted);
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 .layer-actions {
   display: flex;
@@ -1847,6 +1863,7 @@
 
 .community-card-info {
   padding: var(--s-space-3) var(--s-space-3);
+  min-width: 0;
 }
 
 .community-card-prompt {
@@ -1856,6 +1873,8 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  min-width: 0;
   margin-bottom: 4px;
 }
 
@@ -1863,8 +1882,10 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   font-size: 0.75rem;
   color: var(--s-text-muted);
+  min-width: 0;
 }
 
 .community-card-author {

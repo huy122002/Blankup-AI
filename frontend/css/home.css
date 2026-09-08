@@ -1625,6 +1625,8 @@ body.home-page .footer {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  overflow-wrap: anywhere;
+  min-width: 0;
   margin-bottom: 6px;
   font-weight: 500;
 }
@@ -1633,15 +1635,19 @@ body.home-page .footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
   font-size: 0.75rem;
   color: var(--hp-text-muted);
+  min-width: 0;
 }
 
 .gallery-card-meta-left {
   max-width: 55%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .gallery-card-author {

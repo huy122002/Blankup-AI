@@ -225,7 +225,7 @@ ul { list-style: none; }
 /* ============================================================
    BUTTONS
    ============================================================ */
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; padding: 14px 26px; border-radius: var(--radius-buttons); transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; font-family: var(--font-mono); font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; font-weight: 500; padding: 14px 26px; border-radius: var(--radius-buttons); transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast); white-space: normal; text-align: center; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .btn-primary { background: var(--ink); color: var(--paper); border: 1px solid var(--ink); }
 .btn-primary:hover { background: var(--rust); border-color: var(--rust); color: #0f0c09; }
 .btn-secondary { background: transparent; color: var(--ink); border: 1px solid var(--line-strong); }
@@ -372,10 +372,10 @@ ul { list-style: none; }
 .product-image { position: relative; aspect-ratio: 4/5; background: var(--bg-tertiary); }
 .product-image img, .product-image .tshirt-visual, .product-image .tshirt-visual svg { width: 100%; height: 100%; object-fit: cover; }
 .product-badge { position: absolute; top: 14px; left: 14px; z-index: 2; font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; background: var(--paper); color: var(--ink); padding: 5px 9px; border-radius: var(--radius-xs); }
-.product-info { padding: 20px; }
-.product-name { font-size: 1rem; margin-bottom: 6px; }
-.product-desc { font-size: 0.86rem; color: var(--text-muted); margin-bottom: 16px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.product-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.product-info { padding: 20px; min-width: 0; }
+.product-name { font-size: 1rem; margin-bottom: 6px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; min-width: 0; }
+.product-desc { font-size: 0.86rem; color: var(--text-muted); margin-bottom: 16px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; min-width: 0; }
+.product-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; min-width: 0; }
 .product-price { font-family: var(--font-mono); font-size: 0.86rem; color: var(--text-heading); }
 .price-label { font-family: var(--font-body); font-size: 0.76rem; color: var(--text-muted); margin-right: 2px; }
 .product-colors { display: flex; gap: 5px; }

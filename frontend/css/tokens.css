@@ -365,8 +365,8 @@ summary:focus-visible {
 
 /* RTL support - logical properties */
 [dir="rtl"] .bk-rtl-flip { transform: scaleX(-1); }
-[dir="rtl"] .bk-rtl-margin-start { margin-inline-start: var(--s-space-4); margin-inline-end: 0; }
-[dir="rtl"] .bk-rtl-padding { padding-inline: var(--s-space-4); }
+[dir="rtl"] .bk-rtl-margin-start { margin-inline-start: 16px; margin-inline-end: 0; }
+[dir="rtl"] .bk-rtl-padding { padding-inline: 16px; }
 [dir="rtl"] .bk-rtl-border-end { border-inline-end: 1px solid var(--bk-line); }
 
 /* Focus visible enhancement for accessibility */
@@ -410,21 +410,23 @@ summary:focus-visible {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--s-space-10) var(--s-space-6);
+  padding: 40px 24px;
   text-align: center;
-  color: var(--s-text-muted);
+  color: var(--bk-muted, #6d6358);
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
-.bk-empty-state svg { margin-bottom: var(--s-space-4); opacity: 0.6; }
-.bk-empty-state-title { font-size: 1.1rem; margin-bottom: var(--s-space-2); color: var(--s-text); }
-.bk-empty-state-desc { font-size: 0.9rem; max-width: 280px; }
+.bk-empty-state svg { margin-bottom: 16px; opacity: 0.6; }
+.bk-empty-state-title { font-size: 1.1rem; margin-bottom: 8px; color: var(--bk-ink, #0f0c09); overflow-wrap: anywhere; }
+.bk-empty-state-desc { font-size: 0.9rem; max-width: 280px; overflow-wrap: anywhere; }
 
 /* Loading skeleton */
 .bk-skeleton {
-  background: linear-gradient(90deg, var(--s-card) 25%, var(--s-border) 50%, var(--s-card) 75%);
+  background: linear-gradient(90deg, var(--bk-card, #fffdf8) 25%, var(--bk-line-soft, rgba(15,12,9,0.08)) 50%, var(--bk-card, #fffdf8) 75%);
   background-size: 200% 100%;
   animation: bk-shimmer 1.4s linear infinite;
-  border-radius: var(--s-radius);
+  border-radius: 3px;
 }
 
 @keyframes bk-shimmer {
@@ -433,7 +435,7 @@ summary:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .bk-skeleton { animation: none !important; background: var(--s-border); }
+  .bk-skeleton { animation: none !important; background: var(--bk-line-soft, rgba(15,12,9,0.08)); }
 }
 
 /* Error state */
@@ -441,10 +443,12 @@ summary:focus-visible {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--s-error);
+  color: var(--bk-error, #a3341f);
   font-size: 0.8rem;
   font-family: var(--bk-font-mono);
   margin-top: 4px;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .bk-error-inline svg { flex-shrink: 0; }
@@ -453,7 +457,7 @@ summary:focus-visible {
 .bk-field-error input,
 .bk-field-error textarea,
 .bk-field-error select {
-  border-color: var(--s-error) !important;
+  border-color: var(--bk-error, #a3341f) !important;
 }
 
 .bk-field-error input:focus,
@@ -498,16 +502,16 @@ summary:focus-visible {
   display: block;
   width: 100%;
   height: 100%;
-  background: var(--s-bg-subtle);
-  color: var(--s-text-muted);
+  background: var(--bk-paper-3, #ece4d3);
+  color: var(--bk-muted, #6d6358);
 }
 
 /* Skip link enhancement */
 .bk-skip-link:focus {
-  left: var(--s-space-4);
-  top: var(--s-space-4);
+  left: 16px;
+  top: 16px;
   z-index: var(--bk-z-toast);
-  box-shadow: var(--s-shadow-lg);
+  box-shadow: var(--bk-shadow-lg);
 }
 
 /* Container queries for responsive components (future-proof) */

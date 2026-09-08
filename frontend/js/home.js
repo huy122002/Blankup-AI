@@ -599,8 +599,10 @@ function renderGalleryGrid(designs, userId) {
 
   grid.innerHTML = designs.map((d) => {
     const url = d.frontDesignUrl || d.designUrl || '';
-    const prompt = d.prompt || 'AI Design';
-    const author = d.author || 'Community';
+    const prompt = String(d.prompt || 'AI Design').slice(0, 200);
+    const promptDisplay = String(d.prompt || 'AI Design').slice(0, 120);
+    const promptAlt = String(d.prompt || 'AI Design').slice(0, 80);
+    const author = String(d.author || 'Community').slice(0, 40);
     const did = d.designId || '';
     const liked = d.likedBy?.includes(userId);
     const style = (d.style || '').toLowerCase();
@@ -611,7 +613,7 @@ function renderGalleryGrid(designs, userId) {
     return `<div class="gallery-card anim-on-scroll" data-style="${escapeAttr(style)}">
       <div class="gallery-card-media">
         <a href="${escapeAttr(useUrl)}" class="gallery-card-link" title="Dùng thiết kế này">
-          <img class="gallery-card-img" src="${escapeAttr(url)}" alt="${escapeAttr(prompt)}" loading="lazy">
+          <img class="gallery-card-img" src="${escapeAttr(url)}" alt="${escapeAttr(promptAlt)}" loading="lazy">
         </a>
         <a href="${escapeAttr(useUrl)}" class="gallery-card-use">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -619,7 +621,7 @@ function renderGalleryGrid(designs, userId) {
         </a>
       </div>
       <div class="gallery-card-info">
-        <div class="gallery-card-prompt">"${escapeHtml(prompt)}"</div>
+        <div class="gallery-card-prompt">"${escapeHtml(promptDisplay)}"</div>
         <div class="gallery-card-meta">
           <span class="gallery-card-meta-left">${authorHtml}</span>
           <span class="gallery-card-meta-actions">

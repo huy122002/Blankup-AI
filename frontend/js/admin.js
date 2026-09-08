@@ -1526,19 +1526,21 @@ function renderDesignsGrid() {
   }
 
   grid.innerHTML = filtered.map(design => {
-    const prompt = design.prompt || design.promptEn || t('admin.noPrompt', 'Không có prompt');
+    const prompt = String(design.prompt || design.promptEn || t('admin.noPrompt', 'Không có prompt')).slice(0, 200);
+    const promptDisplay = String(design.prompt || design.promptEn || t('admin.noPrompt', 'Không có prompt')).slice(0, 120);
+    const promptAlt = String(design.prompt || design.promptEn || '').slice(0, 80);
     const previewUrl = design.designUrl || design.frontDesignUrl || '';
     const isHidden = design.isShared === false;
     return `
       <article class="design-item-card ${isHidden ? 'is-hidden' : ''}">
         <div class="design-card-preview">
-          ${previewUrl ? `<img src="${escapeAttr(previewUrl)}" alt="${escapeAttr(prompt)}">` : `<span>${escapeHtml(t('admin.noImage', 'Không có ảnh'))}</span>`}
+          ${previewUrl ? `<img src="${escapeAttr(previewUrl)}" alt="${escapeAttr(promptAlt)}" loading="lazy">` : `<span>${escapeHtml(t('admin.noImage', 'Không có ảnh'))}</span>`}
           <span class="design-visibility-badge ${isHidden ? 'badge-muted' : 'badge-completed'}">${isHidden ? escapeHtml(t('admin.visibility.hidden', 'Đã ẩn')) : escapeHtml(t('admin.visibility.public', 'Công khai'))}</span>
         </div>
         <div class="design-card-details">
-          <div class="design-card-prompt">"${escapeHtml(prompt)}"</div>
+          <div class="design-card-prompt">"${escapeHtml(promptDisplay)}"</div>
           <div class="design-card-meta">
-            <span>${escapeHtml(design.author || 'Guest')}</span>
+            <span>${escapeHtml(String(design.author || 'Guest').slice(0, 40))}</span>
             <span>${formatDate(design.createdAt || design.updatedAt || Date.now(), false)}</span>
           </div>
           <button class="btn btn-secondary btn-sm design-visibility-toggle" data-design-id="${escapeAttr(design.id)}" data-next-visible="${isHidden ? 'true' : 'false'}">
@@ -1659,7 +1661,7 @@ function renderAdminPreviewDesign() {
 
   if (overlay) {
     overlay.innerHTML = designUrl
-      ? `<img src="${escapeAttr(designUrl)}" alt="${escapeAttr(t('admin.designThumb', 'Thiết kế in áo'))}">`
+      ? `<img src="${escapeAttr(designUrl)}" alt="${escapeAttr(t('admin.designThumb', 'Thiết kế in áo'))}" loading="lazy">`
       : `<span class="row-muted">${escapeHtml(t('admin.noDesign', 'Không có thiết kế'))}</span>`;
   }
 

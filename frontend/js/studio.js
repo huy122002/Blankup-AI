@@ -643,9 +643,9 @@ function renderLayerList() {
   const selected = getSelectedLayer(side);
   list.innerHTML = layers.map((l, idx) => `
     <div class="layer-row${selected && selected.id === l.id ? ' selected' : ''}" data-layer-id="${escapeAttr(l.id)}">
-      <img class="layer-thumb" src="${escapeAttr(l.url)}" alt="">
+      <img class="layer-thumb" src="${escapeAttr(l.url)}" alt="" loading="lazy">
       <div class="layer-info">
-        <div class="layer-name">${escapeHtml(l.name || 'Mẫu')}</div>
+        <div class="layer-name">${escapeHtml((l.name || 'Mẫu').slice(0, 60))}</div>
         <div class="layer-meta">x:${Math.round(l.x)} y:${Math.round(l.y)} · ${Math.round(l.scale * 100)}%${l.rotation ? ` · ${Math.round(l.rotation)}°` : ''}${l.visible === false ? ' · ẩn' : ''}</div>
       </div>
       <div class="layer-actions">
@@ -1459,7 +1459,7 @@ function renderHistory() {
   list.innerHTML = history.map(h => {
     const timeStr = formatDateTime(h.timestamp);
     return `<div class="history-item" data-id="${escapeAttr(h.id)}" tabindex="0" role="button" aria-label="Khôi phục thiết kế ${escapeAttr((h.prompt || 'Untitled').slice(0, 60))}">
-      <img class="history-item-thumb" src="${escapeAttr(h.designUrl || h.frontDesignUrl)}" alt="" loading="lazy" onerror="this.dataset.fbk='1';this.src='${IMAGE_FALLBACK_SVG}'">
+      <img class="history-item-thumb" src="${escapeAttr(h.designUrl || h.frontDesignUrl)}" alt="" loading="lazy">
       <div class="history-item-info">
         <div class="history-item-prompt">${escapeHtml(h.prompt || 'Untitled')}</div>
         <div class="history-item-time">${timeStr}</div>
@@ -2510,14 +2510,16 @@ async function loadCommunityDesigns() {
     const previewUrl = d.frontDesignUrl || d.designUrl || '';
     const liked = Array.isArray(d.likedBy) && d.likedBy.includes(userId);
     const promptShort = String(d.prompt || '').slice(0, 80);
+    const promptDisplay = String(d.prompt || '').slice(0, 120);
+    const authorDisplay = String(d.author || 'Anonymous').slice(0, 40);
     return `<div class="community-card" data-id="${escapeAttr(d.designId || '')}">
       <div class="community-card-img-wrap" data-url="${escapeAttr(previewUrl)}" data-prompt="${escapeAttr(d.prompt || '')}" data-style="${escapeAttr(d.style || '')}" data-author="${escapeAttr(d.author || 'Anonymous')}" data-back="${escapeAttr(d.backDesignUrl || '')}" tabindex="0" role="button" aria-label="Thêm mẫu ${escapeAttr(promptShort || 'cộng đồng')} vào áo">
-        <img class="community-card-img" src="${escapeAttr(previewUrl)}" alt="${escapeAttr(promptShort || 'Thiết kế cộng đồng')}" loading="lazy" onerror="this.dataset.fbk='1';this.src='${IMAGE_FALLBACK_SVG}'">
+        <img class="community-card-img" src="${escapeAttr(previewUrl)}" alt="${escapeAttr(promptShort || 'Thiết kế cộng đồng')}" loading="lazy">
       </div>
       <div class="community-card-info">
-        <div class="community-card-prompt">"${escapeHtml(d.prompt || '')}"</div>
+        <div class="community-card-prompt">"${escapeHtml(promptDisplay)}"</div>
         <div class="community-card-meta">
-          <span class="community-card-author" data-author="${escapeAttr(d.author || 'Anonymous')}"><svg class="community-author-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ${escapeHtml(d.author || 'Anonymous')}</span>
+          <span class="community-card-author" data-author="${escapeAttr(d.author || 'Anonymous')}"><svg class="community-author-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> ${escapeHtml(authorDisplay)}</span>
           <button class="community-card-like ${liked ? 'liked' : ''}" data-id="${escapeAttr(d.designId || '')}" data-likes="${d.likes || 0}" aria-pressed="${liked ? 'true' : 'false'}" aria-label="Thích thiết kế, hiện có ${d.likes || 0} lượt thích" type="button">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="${liked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
             <span>${d.likes || 0}</span>
@@ -2770,6 +2772,16 @@ function initOnboarding() {
 
 document.addEventListener('DOMContentLoaded', () => {
   i18n.init();
+  // CSP-safe image fallback: single capture-phase listener replaces inline
+  // onerror attributes (blocked by script-src-attr 'none'). Swaps any failed
+  // design thumbnail to the embedded SVG fallback exactly once.
+  document.addEventListener('error', (e) => {
+    const t = e.target;
+    if (t && t.tagName === 'IMG' && !t.dataset.fbk && typeof IMAGE_FALLBACK_SVG === 'string') {
+      t.dataset.fbk = '1';
+      t.src = IMAGE_FALLBACK_SVG;
+    }
+  }, true);
   initTabs();
   initStyleSelector();
   initUpload();
