@@ -197,8 +197,11 @@ function initNavbar() {
     });
   }
 
-  // Smooth scroll for anchor links
+  // Smooth scroll for anchor links (skip-link excluded: native fragment
+  // navigation moves keyboard focus to the target, which smooth-scroll
+  // hijacking would prevent — a11y correctness over animation here)
   document.querySelectorAll('a[href^="#"]').forEach(a => {
+    if (a.classList.contains('bk-skip-link')) return;
     a.addEventListener('click', e => {
       const id = a.getAttribute('href');
       if (id === '#') return;
@@ -347,6 +350,9 @@ function initGalleryTilt() {
   if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) return;
 
   document.querySelectorAll('.gallery-card').forEach(card => {
+    card.addEventListener('mouseenter', () => {
+      card.style.willChange = 'transform';
+    });
     card.addEventListener('mousemove', (e) => {
       const rect = card.getBoundingClientRect();
       const x = (e.clientX - rect.left) / rect.width;
@@ -357,6 +363,7 @@ function initGalleryTilt() {
     });
     card.addEventListener('mouseleave', () => {
       card.style.transform = '';
+      card.style.willChange = '';
     });
   });
 }

@@ -2737,8 +2737,8 @@ body.home-page .footer {
    GALLERY CARD � 3D TILT
    ============================================================ */
 .gallery-card {
-  transform-style: preserve-3d;
-  will-change: transform;
+transform-style: preserve-3d;
+/* will-change managed by JS tilt lifecycle (mouseenter/leave) — never pinned */
 }
 
 /* ============================================================
@@ -2811,10 +2811,11 @@ body.home-page .footer {
 /* ink washes drift slowly across the hero � rust + indigo + gold */
 .hero-bg::before,
 .hero-bg::after {
-  content: '';
-  position: absolute;
-  pointer-events: none;
-  will-change: transform;
+content: '';
+position: absolute;
+pointer-events: none;
+/* kept: infinite 65s/80s transform drift animations below are always active */
+will-change: transform;
 }
 
 .hero-bg::before {
@@ -2870,7 +2871,7 @@ body.home-page .footer {
   background: radial-gradient(280px circle at var(--sx, 50%) var(--sy, 40%), rgba(242, 115, 47, 0.12), transparent 70%);
   opacity: 0;
   transition: opacity 0.4s ease;
-  will-change: transform;
+  /* no will-change: only opacity/var() animate here, transform never does */
 }
 
 .hero-visual:hover .hero-spotlight {
