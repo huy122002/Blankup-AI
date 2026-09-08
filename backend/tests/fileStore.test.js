@@ -29,12 +29,15 @@ describe('fileStore utils', () => {
       expect(data).toEqual([]);
     });
 
-    it('should return empty array for invalid JSON', () => {
+    it('should throw for invalid JSON (never silently [])', () => {
       const badFile = path.join(__dirname, '__bad_json__.json');
       fs.writeFileSync(badFile, '{invalid json', 'utf8');
-      const data = readJson(badFile);
-      expect(data).toEqual([]);
+      expect(() => readJson(badFile)).toThrow();
       fs.unlinkSync(badFile);
+      // prune any corrupt backup the failed read created
+      fs.readdirSync(__dirname)
+        .filter(f => f.startsWith('__bad_json__.json.corrupt.'))
+        .forEach(f => fs.unlinkSync(path.join(__dirname, f)));
     });
   });
 

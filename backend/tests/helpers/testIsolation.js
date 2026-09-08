@@ -60,6 +60,47 @@ function fileStoreFactory(suiteName) {
 }
 
 /**
+ * Create a self-contained jest.mock factory for '../utils/fileStore'
+ * that redirects EVERY backend/data/*.json operation to an isolated temp
+ * directory (mirrored by basename). Use for suites that touch any data
+ * file (follows, contacts, designs, ...) so tests can NEVER write the
+ * real backend/data files, even when run in parallel workers.
+ *
+ * Usage:
+ *   jest.mock('../utils/fileStore', () => require('./helpers/testIsolation').fileStoreFactoryAll('my-suite'));
+ */
+function fileStoreFactoryAll(suiteName) {
+  const actual = jest.requireActual('../../utils/fileStore');
+  const dir = path.join(
+    os.tmpdir(),
+    `blankup-${suiteName}-all-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  );
+  fs.mkdirSync(dir, { recursive: true });
+  const mirror = (filePath) => path.join(dir, path.basename(String(filePath)));
+  const mock = {
+    readJson(filePath) {
+      const m = mirror(filePath);
+      if (fs.existsSync(m)) return actual.readJson(m);
+      // Seed empty so route logic (read-modify-write) works on first touch.
+      // Never fall through to the real file.
+      return [];
+    },
+    writeJson(filePath, data) {
+      return actual.writeJson(mirror(filePath), data);
+    },
+    withLock: actual.withLock,
+    DATA_DIR: dir,
+    _testDir: dir,
+    _testCleanup() {
+      try {
+        if (fs.existsSync(dir)) fs.rmSync(dir, { recursive: true, force: true });
+      } catch {}
+    },
+  };
+  return mock;
+}
+
+/**
  * Create a self-contained jest.mock factory for '../db'
  * that provides authenticate middleware support + empty recordsets for other queries.
  */
@@ -99,4 +140,4 @@ function dbFactory() {
   };
 }
 
-module.exports = { fileStoreFactory, dbFactory };
+module.exports = { fileStoreFactory, fileStoreFactoryAll, dbFactory };

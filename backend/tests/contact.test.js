@@ -1,5 +1,11 @@
 ﻿const request = require('supertest');
+jest.mock('../utils/fileStore', () => require('./helpers/testIsolation').fileStoreFactoryAll('contact'));
 const app = require('../app');
+const { _testCleanup } = require('../utils/fileStore');
+
+afterAll(() => {
+  _testCleanup();
+});
 
 describe('POST /api/contact', () => {
   it('should save a contact message', async () => {

@@ -49,8 +49,14 @@ jest.mock('../middleware/rateLimit', () => ({
   authLimiter: (req, res, next) => next(),
   otpLimiter: (req, res, next) => next(),
 }));
+jest.mock('../utils/fileStore', () => require('./helpers/testIsolation').fileStoreFactoryAll('users'));
 
 const app = require('../app');
+const { _testCleanup } = require('../utils/fileStore');
+
+afterAll(() => {
+  _testCleanup();
+});
 
 describe('GET /api/users/:username', () => {
   it('should return user profile', async () => {
