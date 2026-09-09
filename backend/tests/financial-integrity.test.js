@@ -206,7 +206,14 @@ describe('P0-08: Sepay Webhook — Atomic Credit Issuance', () => {
 
   beforeEach(() => {
     let webhookCount = 0;
+    let pendingTx = null;
     mockDb = (inputs, sql) => {
+      // Transaction support
+      if (sql.includes('BEGIN TRANSACTION') || sql.includes('COMMIT TRANSACTION') || sql.includes('ROLLBACK TRANSACTION')) {
+        return Promise.resolve({ recordset: [] });
+      }
+      
+      // UPDATE with OUTPUT inserted and transferContent (webhook paid)
       if (sql.includes('UPDATE AiPlanPurchases') && sql.includes("paymentStatus = 'paid'") && sql.includes('OUTPUT inserted') && sql.includes('transferContent')) {
         webhookCount++;
         if (webhookCount === 1) {
@@ -214,20 +221,30 @@ describe('P0-08: Sepay Webhook — Atomic Credit Issuance', () => {
             recordset: [{
               id: purchaseId, userId: 'u-buyer', planId: 'plan-pro',
               highCreditsAdded: 100, lowCreditsAdded: 50, finalAmount: 100000,
-              paymentStatus: 'paid',
+              paymentStatus: 'pending', // before update
             }],
             rowsAffected: [1],
           });
         }
         return Promise.resolve({ recordset: [], rowsAffected: [0] });
       }
-      if (sql.includes('SELECT paymentStatus FROM AiPlanPurchases')) {
-        return Promise.resolve({ recordset: [{ paymentStatus: 'paid' }] });
+      
+      // Voucher lookup with FOR UPDATE (row lock)
+      if (sql.includes('FROM Vouchers') && sql.includes('WITH (UPDLOCK, HOLDLOCK, ROWLOCK)')) {
+        return Promise.resolve({ recordset: [] });
       }
+      
+      if (sql.includes('FROM Vouchers') && sql.includes('code = @code')) {
+        return Promise.resolve({ recordset: [] });
+      }
+      
       if (sql.includes('SELECT * FROM UserAiAccounts')) {
         return Promise.resolve({
           recordset: [{ userId: 'u-buyer', highCredits: 0, bonusLowCredits: 0 }],
         });
+      }
+      if (sql.includes('SELECT paymentStatus FROM AiPlanPurchases')) {
+        return Promise.resolve({ recordset: [{ paymentStatus: 'pending' }] });
       }
       if (sql.includes('UPDATE UserAiAccounts')) return ok();
       if (sql.includes('INSERT INTO AiCreditLedger')) return ok();
@@ -327,7 +344,7 @@ describe('P0-09: Voucher — Concurrency-Safe Redemption', () => {
           }],
         });
       }
-      if (sql.includes('FROM Vouchers WHERE code')) {
+      if (sql.includes('FROM Vouchers') && sql.includes('code = @code')) {
         const code = inputs.code;
         const vouchers = {
           VALID: { id: 'v-001', code: 'VALID', status: 'active', discountType: 'fixed', discountValue: 10000, appliesTo: 'all', totalUsageLimit: 5, usedCount: voucherUsedCount, perUserLimit: 2, startsAt: null, expiresAt: null, eligiblePlanCodes: null, bonusHighCredits: 0, bonusLowCredits: 0, maxDiscountAmount: null },
@@ -379,7 +396,7 @@ describe('P0-09: Voucher — Concurrency-Safe Redemption', () => {
           recordset: [{ id: 'plan-pro', code: 'PRO', name: 'Pro', priceVnd: 100000, highCredits: 100, bonusLowCredits: 50, dailyFreeLowCredits: 0, outputQuality: 'high', planRank: 1, isPaid: true, isActive: true }],
         });
       }
-      if (sql.includes('FROM Vouchers WHERE code')) {
+      if (sql.includes('FROM Vouchers') && sql.includes('code = @code')) {
         return Promise.resolve({
           recordset: [{ id: 'v-001', code: 'VALID', status: 'active', discountType: 'fixed', discountValue: 10000, appliesTo: 'all', totalUsageLimit: 1, usedCount: 1, perUserLimit: 5, startsAt: null, expiresAt: null, eligiblePlanCodes: null, bonusHighCredits: 0, bonusLowCredits: 0, maxDiscountAmount: null }],
         });

@@ -82,7 +82,7 @@ describe('O-06: Voucher reservation at purchase (pending) — verification', () 
       const auth = handleAuth(inputs, sql);
       if (auth) return auth;
       if (sql.includes('FROM AiPlans')) return Promise.resolve({ recordset: [{ id: 'plan-pro', code: 'PRO', name: 'Pro', priceVnd: 100000, highCredits: 100, bonusLowCredits: 0, dailyFreeLowCredits: 0, outputQuality: 'high', planRank: 1, isPaid: true, isActive: true }] });
-      if (sql.includes('FROM Vouchers WHERE code')) return Promise.resolve({ recordset: [voucherRow] });
+      if (sql.includes('FROM Vouchers') && sql.includes('code = @code')) return Promise.resolve({ recordset: [voucherRow] });
       if (sql.includes('SELECT COUNT(*)') && sql.includes('VoucherRedemptions')) return Promise.resolve({ recordset: [{ cnt: 0 }] });
       if (sql.includes('INSERT INTO AiPlanPurchases')) return ok();
       if (sql.includes('INSERT INTO VoucherRedemptions')) { redemptionInserted++; return ok(); }
@@ -103,7 +103,7 @@ describe('O-06: Voucher reservation at purchase (pending) — verification', () 
       const auth = handleAuth(inputs, sql);
       if (auth) return auth;
       if (sql.includes('FROM AiPlans')) return Promise.resolve({ recordset: [{ id: 'plan-pro', code: 'PRO', name: 'Pro', priceVnd: 100000, highCredits: 100, bonusLowCredits: 0, dailyFreeLowCredits: 0, outputQuality: 'high', planRank: 1, isPaid: true, isActive: true }] });
-      if (sql.includes('FROM Vouchers WHERE code')) return Promise.resolve({ recordset: [{ id: 'v-o06', code: 'O06VOUCH2', status: 'active', discountType: 'fixed', discountValue: 5000, appliesTo: 'plan', totalUsageLimit: 10, usedCount: 0, perUserLimit: 5, startsAt: null, expiresAt: null, eligiblePlanCodes: null, bonusHighCredits: 0, bonusLowCredits: 0, maxDiscountAmount: null }] });
+      if (sql.includes('FROM Vouchers') && sql.includes('code = @code')) return Promise.resolve({ recordset: [{ id: 'v-o06', code: 'O06VOUCH2', status: 'active', discountType: 'fixed', discountValue: 5000, appliesTo: 'plan', totalUsageLimit: 10, usedCount: 0, perUserLimit: 5, startsAt: null, expiresAt: null, eligiblePlanCodes: null, bonusHighCredits: 0, bonusLowCredits: 0, maxDiscountAmount: null }] });
       if (sql.includes('SELECT COUNT(*)') && sql.includes('VoucherRedemptions')) return Promise.resolve({ recordset: [{ cnt: 0 }] });
       if (sql.includes('INSERT INTO AiPlanPurchases')) return ok();
       if (sql.includes('INSERT INTO VoucherRedemptions')) { redemptionCount++; return ok(); }
@@ -124,7 +124,7 @@ describe('O-06: Voucher reservation at purchase (pending) — verification', () 
       const auth = handleAuth(inputs, sql);
       if (auth) return auth;
       if (sql.includes('FROM AiPlans')) return Promise.resolve({ recordset: [{ id: 'plan-pro', code: 'PRO', name: 'Pro', priceVnd: 100000, highCredits: 100, bonusLowCredits: 0, dailyFreeLowCredits: 0, outputQuality: 'high', planRank: 1, isPaid: true, isActive: true }] });
-      if (sql.includes('FROM Vouchers WHERE code')) return Promise.resolve({ recordset: [{ id: 'v-conc', code: 'CONCV', status: 'active', discountType: 'fixed', discountValue: 1000, appliesTo: 'plan', totalUsageLimit: LIMIT, usedCount: voucherUsedCount, perUserLimit: 10, startsAt: null, expiresAt: null, eligiblePlanCodes: null, bonusHighCredits: 0, bonusLowCredits: 0, maxDiscountAmount: null }] });
+      if (sql.includes('FROM Vouchers') && sql.includes('code = @code')) return Promise.resolve({ recordset: [{ id: 'v-conc', code: 'CONCV', status: 'active', discountType: 'fixed', discountValue: 1000, appliesTo: 'plan', totalUsageLimit: LIMIT, usedCount: voucherUsedCount, perUserLimit: 10, startsAt: null, expiresAt: null, eligiblePlanCodes: null, bonusHighCredits: 0, bonusLowCredits: 0, maxDiscountAmount: null }] });
       if (sql.includes('SELECT COUNT(*)') && sql.includes('VoucherRedemptions')) return Promise.resolve({ recordset: [{ cnt: 0 }] });
       if (sql.includes('INSERT INTO AiPlanPurchases')) return ok();
       if (sql.includes('INSERT INTO VoucherRedemptions')) { voucherUsedCount++; return ok(); }
