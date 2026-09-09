@@ -1,10 +1,10 @@
 const express = require('express');
-const crypto = require('crypto');
 const router = express.Router();
 const { getPool, sql } = require('../db');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { withLock } = require('../utils/fileStore');
 const { validateVoucherForPlan } = require('../services/voucher.service');
+const idemStore = require('../services/purchase-idempotency.service');
 
 const BANK_TRANSFER_INFO = {
   bankId: '970422',
@@ -13,20 +13,19 @@ const BANK_TRANSFER_INFO = {
   accountNumber: '0967145402',
 };
 
-// Idempotency store for AiPlan purchase — in-memory, 24h TTL, per-user+key
-const PURCHASE_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
-const purchaseIdempotency = new Map(); // `${userId}:${key}` -> { bodyHash, response, createdAt }
-
-function cleanupPurchaseIdempotency() {
-  const now = Date.now();
-  for (const [k, v] of purchaseIdempotency) {
-    if (now - v.createdAt > PURCHASE_IDEMPOTENCY_TTL_MS) purchaseIdempotency.delete(k);
-  }
+// Persistent idempotency lives in SQL (services/purchase-idempotency.service).
+// The request hash below MUST stay byte-identical to the service canonical
+// form, otherwise old keys would mismatch. Single source: idemStore.hashBody.
+function hashPurchaseBody(body) {
+  return idemStore.hashBody(body);
 }
 
-function hashPurchaseBody(body) {
-  const stable = JSON.stringify({ planId: body.planId || null, planCode: body.planCode || null, voucherCode: body.voucherCode ? String(body.voucherCode).trim().toUpperCase() : null });
-  return crypto.createHash('sha256').update(stable).digest('hex');
+// Fire-and-forget expiry cleanup of completed idempotency records.
+// Deletes completed-only rows, so it can never race in-flight work.
+function cleanupIdempotencySoon(pool) {
+  try {
+    idemStore.cleanupExpired(pool, sql).catch(() => {});
+  } catch {}
 }
 
 // ---------------------------------------------------------------------------
@@ -136,24 +135,35 @@ router.post('/purchase', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Thiếu planId hoặc planCode.' });
     }
 
-    if (purchaseIdempotency.size > 200) cleanupPurchaseIdempotency();
+    const pool = getPool();
+    cleanupIdempotencySoon(pool);
 
-    // Fast pre-check for idempotency without lock (optimistic)
+    // Fast pre-check from persistent store (no lock held).
     if (idempotencyKey) {
-      const cacheKey = `${userId}:${String(idempotencyKey)}`;
-      const cached = purchaseIdempotency.get(cacheKey);
-      if (cached) {
-        if (cached.bodyHash !== bodyHash) {
+      const existing = await idemStore.getRecord(pool, sql, userId, idempotencyKey);
+      if (existing) {
+        if (existing.bodyHash !== bodyHash) {
           return res.status(409).json({ success: false, error: 'Idempotency-Key đã được sử dụng với dữ liệu khác. Vui lòng tạo key mới.' });
         }
-        // Return cached response 200 (idempotent)
-        return res.status(200).json({ ...cached.response, idempotent: true });
+        const replayed = idemStore.parseResponse(existing);
+        if (replayed) {
+          return res.status(200).json({ ...replayed, idempotent: true });
+        }
+        if (!idemStore.isStale(existing)) {
+          // Winner still in flight: wait for its response, then replay.
+          const done = await idemStore.waitForCompletion(pool, sql, userId, idempotencyKey);
+          const doneReplay = done && idemStore.parseResponse(done);
+          if (doneReplay && done.bodyHash === bodyHash) {
+            return res.status(200).json({ ...doneReplay, idempotent: true });
+          }
+          return res.status(503).json({ success: false, error: 'Đơn đang được xử lý ở request khác. Vui lòng thử lại với cùng key.' });
+        }
+        // Stale in-progress claim (crashed winner): reclaim below.
+        await idemStore.deleteClaim(pool, sql, userId, idempotencyKey);
       }
     }
 
-    const pool = getPool();
-
-    // Find the plan
+    // Find the plan (pool already acquired above for the idempotency pre-check)
     let plan;
     if (planId) {
       const result = await pool.request()
@@ -175,109 +185,166 @@ router.post('/purchase', authenticate, async (req, res) => {
       return res.status(400).json({ success: false, error: 'Gói này không yêu cầu thanh toán.' });
     }
 
-    // Execute purchase inside lock when voucher or idempotency present
+    // Execute purchase inside lock when voucher or idempotency present.
+    // The purchase itself ALWAYS runs in ONE SQL transaction covering:
+    // idem-claim + voucher validation (row-locked) + purchase INSERT +
+    // redemption + usedCount + idem-response, so any failure rolls back
+    // everything atomically — across processes and restarts.
     const needsLock = Boolean(voucherCode) || Boolean(idempotencyKey);
 
+    const makeTransferContent = () => {
+      const rnd = Math.random().toString(36).slice(2, 8).toUpperCase();
+      return `BLANKUP-AI-${String(plan.code).toUpperCase()}-${rnd}`;
+    };
+
     const executePurchase = async () => {
-      // Idempotency check inside lock (serialize)
-      if (idempotencyKey) {
-        const cacheKey = `${userId}:${String(idempotencyKey)}`;
-        const cached = purchaseIdempotency.get(cacheKey);
-        if (cached) {
-          if (cached.bodyHash !== bodyHash) {
-            return { error: 'Idempotency-Key đã được sử dụng với dữ liệu khác. Vui lòng tạo key mới.', status: 409, conflict: true };
+      const tx = pool.transaction();
+      await tx.begin();
+      const t = () => tx.request();
+      try {
+        // 1. Claim the idempotency key first. On UNIQUE violation another
+        // process/user-request won the race -> roll back and replay it.
+        if (idempotencyKey) {
+          try {
+            await t()
+              .input('userId', sql.NVarChar, userId)
+              .input('key', sql.NVarChar, String(idempotencyKey))
+              .input('bodyHash', sql.NVarChar, bodyHash)
+              .query(`INSERT INTO PurchaseIdempotency (userId, idemKey, bodyHash, status)
+                      VALUES (@userId, @key, @bodyHash, N'in_progress')`);
+          } catch (claimErr) {
+            await tx.rollback();
+            if (idemStore.isUniqueViolation(claimErr)) return { lostRace: true };
+            throw claimErr;
           }
-          return { idempotent: true, cached: cached.response };
         }
-      }
 
-      const voucherResult = await validateVoucherForPlan({ pool, voucherCode, plan, userId, appliesToExpected: 'plan' });
-      if (voucherResult.error) {
-        return { error: voucherResult.error, status: voucherResult.status || 400 };
-      }
+        // 2. Voucher validation inside the transaction (row-locked).
+        const voucherResult = await validateVoucherForPlan({
+          pool, transaction: tx, forUpdate: Boolean(voucherCode),
+          voucherCode, plan, userId, appliesToExpected: 'plan',
+        });
+        if (voucherResult.error) {
+          await tx.rollback();
+          return { error: voucherResult.error, status: voucherResult.status || 400 };
+        }
 
-      const discountAmount = voucherResult.discountAmount || 0;
-      const bonusHigh = voucherResult.bonusHigh || 0;
-      const bonusLow = voucherResult.bonusLow || 0;
-      const voucher = voucherResult.voucher || null;
+        const discountAmount = voucherResult.discountAmount || 0;
+        const bonusHigh = voucherResult.bonusHigh || 0;
+        const bonusLow = voucherResult.bonusLow || 0;
+        const voucher = voucherResult.voucher || null;
 
-      const finalAmount = Math.max(0, Number(plan.priceVnd) - discountAmount);
-      const totalHigh = Number(plan.highCredits || 0) + bonusHigh;
-      const totalLow = Number(plan.bonusLowCredits || 0) + bonusLow;
+        const finalAmount = Math.max(0, Number(plan.priceVnd) - discountAmount);
+        const totalHigh = Number(plan.highCredits || 0) + bonusHigh;
+        const totalLow = Number(plan.bonusLowCredits || 0) + bonusLow;
 
-      // Create purchase record
-      const purchaseId = 'purchase-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
-      const transferContent = `BLANKUP-AI-${String(plan.code).toUpperCase()}-${purchaseId.slice(-6)}`;
-
-      await pool.request()
-        .input('id', sql.NVarChar, purchaseId)
-        .input('userId', sql.NVarChar, userId)
-        .input('planId', sql.NVarChar, plan.id)
-        .input('priceVnd', sql.Int, Number(plan.priceVnd))
-        .input('highCreditsAdded', sql.Int, totalHigh)
-        .input('lowCreditsAdded', sql.Int, totalLow)
-        .input('finalAmount', sql.Int, finalAmount)
-        .input('transferContent', sql.NVarChar, transferContent)
-        .input('paymentMethod', sql.NVarChar, 'BANK_TRANSFER')
-        .input('voucherCode', sql.NVarChar, voucher ? voucher.code : null)
-        .input('discountAmount', sql.Int, discountAmount)
-        .query(`
-          INSERT INTO AiPlanPurchases (
-            id, userId, planId, priceVnd, highCreditsAdded, lowCreditsAdded,
-            finalAmount, transferContent, paymentMethod, paymentStatus, voucherCode, discountAmount
-          )
-          VALUES (
-            @id, @userId, @planId, @priceVnd, @highCreditsAdded, @lowCreditsAdded,
-            @finalAmount, @transferContent, @paymentMethod, 'pending', @voucherCode, @discountAmount
-          )
-        `);
-
-      // Record voucher redemption if used
-      if (voucher) {
-        const redemptionId = 'vr-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
-        await pool.request()
-          .input('id', sql.NVarChar, redemptionId)
-          .input('voucherId', sql.NVarChar, voucher.id)
-          .input('voucherCode', sql.NVarChar, voucher.code)
+        // 3. Create purchase record (idempotencyKey recorded for audit/cleanup).
+        const purchaseId = 'purchase-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 6).toUpperCase();
+        let transferContent = makeTransferContent();
+        const insertPurchase = () => t()
+          .input('id', sql.NVarChar, purchaseId)
           .input('userId', sql.NVarChar, userId)
-          .input('purchaseId', sql.NVarChar, purchaseId)
-          .input('appliesTo', sql.NVarChar, 'plan')
-          .input('originalAmount', sql.Int, Number(plan.priceVnd))
+          .input('planId', sql.NVarChar, plan.id)
+          .input('priceVnd', sql.Int, Number(plan.priceVnd))
+          .input('highCreditsAdded', sql.Int, totalHigh)
+          .input('lowCreditsAdded', sql.Int, totalLow)
+          .input('finalAmount', sql.Int, finalAmount)
+          .input('transferContent', sql.NVarChar, transferContent)
+          .input('paymentMethod', sql.NVarChar, 'BANK_TRANSFER')
+          .input('voucherCode', sql.NVarChar, voucher ? voucher.code : null)
           .input('discountAmount', sql.Int, discountAmount)
-          .input('bonusHigh', sql.Int, bonusHigh)
-          .input('bonusLow', sql.Int, bonusLow)
+          .input('idemKey', sql.NVarChar, idempotencyKey ? String(idempotencyKey) : null)
           .query(`
-            INSERT INTO VoucherRedemptions (id, voucherId, voucherCode, userId, purchaseId, appliesTo, originalAmount, discountAmount, bonusHighCredits, bonusLowCredits, redeemedAt)
-            VALUES (@id, @voucherId, @voucherCode, @userId, @purchaseId, @appliesTo, @originalAmount, @discountAmount, @bonusHigh, @bonusLow, GETDATE());
-            UPDATE Vouchers SET usedCount = usedCount + 1, updatedAt = GETDATE() WHERE id = @voucherId;
+            INSERT INTO AiPlanPurchases (
+              id, userId, planId, priceVnd, highCreditsAdded, lowCreditsAdded,
+              finalAmount, transferContent, paymentMethod, paymentStatus, voucherCode, discountAmount, idempotencyKey
+            )
+            VALUES (
+              @id, @userId, @planId, @priceVnd, @highCreditsAdded, @lowCreditsAdded,
+              @finalAmount, @transferContent, @paymentMethod, 'pending', @voucherCode, @discountAmount, @idemKey
+            )
           `);
+        try {
+          await insertPurchase();
+        } catch (insErr) {
+          // transferContent collision (UNIQUE guard): regenerate once and retry.
+          if (idemStore.isUniqueViolation(insErr)) {
+            transferContent = makeTransferContent();
+            await insertPurchase();
+          } else {
+            throw insErr;
+          }
+        }
+
+        // 4. Record voucher redemption if used (same transaction).
+        if (voucher) {
+          const redemptionId = 'vr-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6);
+          await t()
+            .input('id', sql.NVarChar, redemptionId)
+            .input('voucherId', sql.NVarChar, voucher.id)
+            .input('voucherCode', sql.NVarChar, voucher.code)
+            .input('userId', sql.NVarChar, userId)
+            .input('purchaseId', sql.NVarChar, purchaseId)
+            .input('appliesTo', sql.NVarChar, 'plan')
+            .input('originalAmount', sql.Int, Number(plan.priceVnd))
+            .input('discountAmount', sql.Int, discountAmount)
+            .input('bonusHigh', sql.Int, bonusHigh)
+            .input('bonusLow', sql.Int, bonusLow)
+            .query(`
+              INSERT INTO VoucherRedemptions (id, voucherId, voucherCode, userId, purchaseId, appliesTo, originalAmount, discountAmount, bonusHighCredits, bonusLowCredits, redeemedAt)
+              VALUES (@id, @voucherId, @voucherCode, @userId, @purchaseId, @appliesTo, @originalAmount, @discountAmount, @bonusHigh, @bonusLow, GETDATE());
+              UPDATE Vouchers SET usedCount = usedCount + 1, updatedAt = GETDATE() WHERE id = @voucherId;
+            `);
+        }
+
+        const responsePayload = {
+          success: true,
+          purchaseId,
+          planId: plan.id,
+          planCode: plan.code,
+          planName: plan.name,
+          priceVnd: Number(plan.priceVnd),
+          discountAmount,
+          finalAmount,
+          voucherCode: voucher ? voucher.code : null,
+          highCreditsAdded: totalHigh,
+          lowCreditsAdded: totalLow,
+          transferContent,
+          paymentMethod: 'BANK_TRANSFER',
+          bankInfo: BANK_TRANSFER_INFO,
+          message: 'Quét QR để thanh toán. Sau khi xác nhận, credit sẽ được cộng tự động.',
+        };
+
+        // 5. Publish the idempotent response, then commit everything together.
+        if (idempotencyKey) {
+          await t()
+            .input('userId', sql.NVarChar, userId)
+            .input('key', sql.NVarChar, String(idempotencyKey))
+            .input('resp', sql.NVarChar, JSON.stringify(responsePayload))
+            .query(`UPDATE PurchaseIdempotency
+                    SET responseJson = @resp, status = N'complete', updatedAt = GETDATE()
+                    WHERE userId = @userId AND idemKey = @key`);
+        }
+
+        await tx.commit();
+        return responsePayload;
+      } catch (err) {
+        try { await tx.rollback(); } catch {}
+        throw err;
       }
+    };
 
-      const responsePayload = {
-        success: true,
-        purchaseId,
-        planId: plan.id,
-        planCode: plan.code,
-        planName: plan.name,
-        priceVnd: Number(plan.priceVnd),
-        discountAmount,
-        finalAmount,
-        voucherCode: voucher ? voucher.code : null,
-        highCreditsAdded: totalHigh,
-        lowCreditsAdded: totalLow,
-        transferContent,
-        paymentMethod: 'BANK_TRANSFER',
-        bankInfo: BANK_TRANSFER_INFO,
-        message: 'Quét QR để thanh toán. Sau khi xác nhận, credit sẽ được cộng tự động.',
-      };
-
-      // Store idempotency
-      if (idempotencyKey) {
-        const cacheKey = `${userId}:${String(idempotencyKey)}`;
-        purchaseIdempotency.set(cacheKey, { bodyHash, response: responsePayload, createdAt: Date.now() });
+    const replayLostRace = async () => {
+      const done = await idemStore.waitForCompletion(pool, sql, userId, idempotencyKey);
+      const replayed = done && idemStore.parseResponse(done);
+      if (replayed && done.bodyHash === bodyHash) {
+        console.log(`[AI-Plans] Idempotent replay (race): ${replayed.purchaseId} for user ${userId}`);
+        return res.status(200).json({ ...replayed, idempotent: true });
       }
-
-      return responsePayload;
+      if (done && done.bodyHash !== bodyHash) {
+        return res.status(409).json({ success: false, error: 'Idempotency-Key đã được sử dụng với dữ liệu khác. Vui lòng tạo key mới.' });
+      }
+      return res.status(503).json({ success: false, error: 'Đơn đang được xử lý ở request khác. Vui lòng thử lại với cùng key.' });
     };
 
     let result;
@@ -289,21 +356,18 @@ router.post('/purchase', authenticate, async (req, res) => {
       result = await executePurchase();
     }
 
+    if (result && result.lostRace) {
+      return replayLostRace();
+    }
+
     if (result && result.error) {
       const status = result.status || 400;
       return res.status(status).json({ success: false, error: result.error });
     }
 
-    if (result && result.idempotent && result.cached) {
-      console.log(`[AI-Plans] Idempotent replay: ${result.cached.purchaseId} for user ${userId}`);
-      return res.status(200).json({ ...result.cached, idempotent: true });
-    }
-
     console.log(`[AI-Plans] Purchase created: ${result.purchaseId} (${plan.code}) by user ${userId} final=${result.finalAmount} discount=${result.discountAmount}`);
 
-    // Return appropriate status: 201 for new, 200 for idempotent replay
-    const isIdempotent = result.idempotent === true;
-    res.status(isIdempotent ? 200 : 201).json(result);
+    res.status(201).json(result);
   } catch (err) {
     console.error('[AI-Plans] Purchase error:', err.message);
     res.status(500).json({ success: false, error: 'Không thể tạo đơn mua gói.' });

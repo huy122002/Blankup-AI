@@ -22,9 +22,14 @@ const { sql } = require('../db');
  * @param {object} opts.plan - plan row from AiPlans (must have priceVnd, code, id)
  * @param {string} opts.userId - authenticated user id for perUserLimit
  * @param {string} opts.appliesToExpected - 'plan' | 'order' | 'all' — expected appliesTo
+ * @param {object} [opts.transaction] - optional mssql Transaction: validation
+ *   queries run inside it (used by the purchase flow for atomicity)
+ * @param {boolean} [opts.forUpdate] - lock the voucher row (UPDLOCK, HOLDLOCK)
+ *   so concurrent redemptions serialize; only meaningful with transaction
  * @returns {Promise<{voucher:object|null, discountAmount:number, bonusHigh:number, bonusLow:number, error?:string, status?:number}>}
  */
-async function validateVoucherForPlan({ pool, voucherCode, plan, userId, appliesToExpected = 'plan' }) {
+async function validateVoucherForPlan({ pool, voucherCode, plan, userId, appliesToExpected = 'plan', transaction, forUpdate }) {
+  const q = transaction || pool;
   if (!voucherCode) {
     return { voucher: null, discountAmount: 0, bonusHigh: 0, bonusLow: 0 };
   }
@@ -35,10 +40,10 @@ async function validateVoucherForPlan({ pool, voucherCode, plan, userId, applies
   }
   const code = raw.toUpperCase();
 
-  // 1. exists
-  const vRes = await pool.request()
+  // 1. exists (optionally row-locked for concurrent redemption safety)
+  const vRes = await q.request()
     .input('code', sql.NVarChar, code)
-    .query('SELECT * FROM Vouchers WHERE code = @code');
+    .query(`SELECT * FROM Vouchers${forUpdate && transaction ? ' WITH (UPDLOCK, HOLDLOCK, ROWLOCK)' : ''} WHERE code = @code`);
 
   if (vRes.recordset.length === 0) {
     return { error: 'Mã voucher không tồn tại.', status: 400 };
@@ -87,7 +92,7 @@ async function validateVoucherForPlan({ pool, voucherCode, plan, userId, applies
 
   // 8. perUserLimit
   if (userId) {
-    const perUserRes = await pool.request()
+    const perUserRes = await q.request()
       .input('voucherId', sql.NVarChar, voucher.id)
       .input('userId', sql.NVarChar, userId)
       .query('SELECT COUNT(*) as cnt FROM VoucherRedemptions WHERE voucherId = @voucherId AND userId = @userId');

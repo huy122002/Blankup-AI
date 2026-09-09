@@ -70,7 +70,7 @@ describe('Phase1 POST /api/ai-plans/quote', ()=>{
         const p = inputs.planCode==='pro' ? basePlan : null;
         return Promise.resolve({ recordset: p ? [p] : [] });
       }
-      if(sql.includes('FROM Vouchers WHERE code')){
+      if(sql.includes('FROM Vouchers') && sql.includes('code = @code')){
         const code = inputs.code;
         const vouchers = {
           'FIX10': { id:'v-fix', code:'FIX10', status:'active', discountType:'fixed', discountValue:10000, appliesTo:'all', totalUsageLimit:null, usedCount:0, perUserLimit:1, startsAt:null, expiresAt:null, eligiblePlanCodes:null, bonusHighCredits:0, bonusLowCredits:0, maxDiscountAmount:null, minOrderAmount:0 },
@@ -124,7 +124,7 @@ describe('Phase1 POST /api/ai-plans/quote', ()=>{
     mockDb = (inputs, sql)=>{
       const a = handleAuth(inputs, sql); if(a) return a;
       if(sql.includes('FROM AiPlans')) return Promise.resolve({ recordset: [basePlan] });
-      if(sql.includes('FROM Vouchers WHERE code')) return Promise.resolve({ recordset: [{ id:'v-cap', code:'CAP', status:'active', discountType:'percent', discountValue:50, appliesTo:'plan', totalUsageLimit:null, usedCount:0, perUserLimit:5, startsAt:null, expiresAt:null, eligiblePlanCodes:null, bonusHighCredits:0, bonusLowCredits:0, maxDiscountAmount:10000, minOrderAmount:0 }] });
+      if(sql.includes('FROM Vouchers') && sql.includes('code = @code')) return Promise.resolve({ recordset: [{ id:'v-cap', code:'CAP', status:'active', discountType:'percent', discountValue:50, appliesTo:'plan', totalUsageLimit:null, usedCount:0, perUserLimit:5, startsAt:null, expiresAt:null, eligiblePlanCodes:null, bonusHighCredits:0, bonusLowCredits:0, maxDiscountAmount:10000, minOrderAmount:0 }] });
       if(sql.includes('SELECT COUNT')) return Promise.resolve({ recordset:[{cnt:0}] });
       return ok();
     };
@@ -203,18 +203,132 @@ describe('Phase1 POST /api/ai-plans/quote', ()=>{
 
 describe('Phase1 POST /api/ai-plans/purchase hardening', ()=>{
   const userToken = generateTestToken({ id:'u-buyer', role:'user' });
+  // Stateful mimic of PurchaseIdempotency PK(userId,idemKey): reset per test
+  // so same-key replay / mismatch tests observe real table semantics.
+  let idemRows;
   beforeEach(()=>{
+    idemRows = {};
     mockDb = (inputs, sql)=>{
-      const a=handleAuth(inputs,sql); if(a) return a;
+      const authResult = handleAuth(inputs, sql);
+      if(authResult) return authResult;
+      
+      // Plan lookup
       if(sql.includes('FROM AiPlans') && sql.includes('id = @planId')) return Promise.resolve({ recordset:[basePlan] });
       if(sql.includes('FROM AiPlans') && sql.includes('code = @planCode')) return Promise.resolve({ recordset: inputs.planCode==='pro'? [basePlan]:[] });
-      if(sql.includes('FROM Vouchers WHERE code')){
+      
+      // Voucher lookup (with optional forUpdate)
+      if(sql.includes('FROM Vouchers') && sql.includes('code = @code')){
         if(inputs.code==='FIX10') return Promise.resolve({ recordset:[{ id:'v-fix', code:'FIX10', status:'active', discountType:'fixed', discountValue:10000, appliesTo:'all', totalUsageLimit:null, usedCount:0, perUserLimit:5, startsAt:null, expiresAt:null, eligiblePlanCodes:null, bonusHighCredits:0, bonusLowCredits:0, maxDiscountAmount:null, minOrderAmount:0 }] });
         return Promise.resolve({ recordset:[] });
       }
+      
+      // New PurchaseIdempotency table queries (stateful mimic)
+      if(sql.includes('FROM PurchaseIdempotency WHERE userId = @userId AND idemKey = @key')) {
+        const row = idemRows[`${inputs.userId}:${inputs.key}`];
+        return Promise.resolve({ recordset: row ? [row] : [] });
+      }
+      
+      // Transaction support - mock the transaction object
+      if(sql.includes('BEGIN TRANSACTION') || sql.includes('COMMIT TRANSACTION') || sql.includes('ROLLBACK TRANSACTION')) {
+        return Promise.resolve({ recordset: [] });
+      }
+      
+      // Voucher validation with forUpdate (UPDLOCK, HOLDLOCK, ROWLOCK)
+      if(sql.includes('FROM Vouchers') && sql.includes('WITH (UPDLOCK, HOLDLOCK, ROWLOCK)')) {
+        if(inputs.code==='FIX10') return Promise.resolve({ recordset:[{ id:'v-fix', code:'FIX10', status:'active', discountType:'fixed', discountValue:10000, appliesTo:'all', totalUsageLimit:null, usedCount:0, perUserLimit:5, startsAt:null, expiresAt:null, eligiblePlanCodes:null, bonusHighCredits:0, bonusLowCredits:0, maxDiscountAmount:null, minOrderAmount:0 }] });
+        return Promise.resolve({ recordset:[] });
+      }
+      
+      // Voucher lookup without forUpdate
+      if(sql.includes('FROM Vouchers') && sql.includes('code = @code')){
+        if(inputs.code==='FIX10') return Promise.resolve({ recordset:[{ id:'v-fix', code:'FIX10', status:'active', discountType:'fixed', discountValue:10000, appliesTo:'all', totalUsageLimit:null, usedCount:0, perUserLimit:5, startsAt:null, expiresAt:null, eligiblePlanCodes:null, bonusHighCredits:0, bonusLowCredits:0, maxDiscountAmount:null, minOrderAmount:0 }] });
+        return Promise.resolve({ recordset:[] });
+      }
+      
+      // PurchaseIdempotency table queries (stateful mimic)
+      if(sql.includes('FROM PurchaseIdempotency WHERE userId = @userId AND idemKey = @key')) {
+        const row = idemRows[`${inputs.userId}:${inputs.key}`];
+        return Promise.resolve({ recordset: row ? [row] : [] });
+      }
+      if(sql.includes('INSERT INTO PurchaseIdempotency')) {
+        const k = `${inputs.userId}:${inputs.key}`;
+        if (idemRows[k]) {
+          const e = new Error('Violation of PRIMARY KEY constraint. Cannot insert duplicate key.');
+          e.number = 2627;
+          return Promise.reject(e);
+        }
+        idemRows[k] = { userId: inputs.userId, idemKey: inputs.key, bodyHash: inputs.bodyHash, responseJson: null, status: 'in_progress', createdAt: new Date() };
+        return Promise.resolve({ recordset: [] });
+      }
+      if(sql.includes('UPDATE PurchaseIdempotency')) {
+        const k = `${inputs.userId}:${inputs.key}`;
+        if (idemRows[k] && inputs.resp) {
+          idemRows[k] = { ...idemRows[k], responseJson: inputs.resp, status: 'complete' };
+        }
+        return Promise.resolve({ recordset: [] });
+      }
+      if(sql.includes('DELETE FROM PurchaseIdempotency')) {
+        delete idemRows[`${inputs.userId}:${inputs.key}`];
+        return Promise.resolve({ recordset: [] });
+      }
+      
+      // VoucherRedemptions with voucherId filter
+      if(sql.includes('FROM VoucherRedemptions WHERE voucherId = @voucherId') || sql.includes('FROM VoucherRedemptions WHERE voucherId = @v')) {
+        return Promise.resolve({ recordset: [] });
+      }
+      
+      // Voucher lookup
+      if(sql.includes('FROM Vouchers') && sql.includes('code = @code = @code')){
+        if(inputs.code==='FIX10') return Promise.resolve({ recordset:[{ id:'v-fix', code:'FIX10', status:'active', discountType:'fixed', discountValue:10000, appliesTo:'all', totalUsageLimit:null, usedCount:0, perUserLimit:5, startsAt:null, expiresAt:null, eligiblePlanCodes:null, bonusHighCredits:0, bonusLowCredits:0, maxDiscountAmount:null, minOrderAmount:0 }] });
+        return Promise.resolve({ recordset:[] });
+      }
+      
+      // Voucher redemptions
+      if(sql.includes('SELECT COUNT(*) AS n FROM VoucherRedemptions WHERE voucherId = @v') || sql.includes('FROM VoucherRedemptions WHERE voucherId = @v')) {
+        return Promise.resolve({ recordset: [{ cnt: 0 }] });
+      }
+      
+      // Voucher updates
+      if(sql.includes('UPDATE Vouchers SET usedCount')) {
+        return Promise.resolve({ recordset: [], rowsAffected: [1] });
+      }
+      
+      // Standard COUNT queries
+      if(sql.includes('SELECT COUNT(*) AS n FROM VoucherRedemptions WHERE voucherId = @v') || sql.includes('FROM VoucherRedemptions WHERE voucherId = @v')) {
+        return Promise.resolve({ recordset: [{ cnt: 0 }] });
+      }
+      
+      if(sql.includes('SELECT COUNT(*) AS n FROM AiPlanPurchases WHERE idempotencyKey = @k')) {
+        return Promise.resolve({ recordset: [{ n: 0 }] });
+      }
+      
+      // Voucher code queries with COUNT
+      if(sql.includes('SELECT COUNT(*)') && (sql.includes('VoucherRedemptions') || sql.includes('VoucherRedemptions'))) {
+        return Promise.resolve({ recordset: [{ cnt: 0 }] });
+      }
+      
+      // Standard count queries
       if(sql.includes('SELECT COUNT')) return Promise.resolve({ recordset:[{cnt:0}] });
+      
+      // INSERT statements - just return ok for now
       if(sql.includes('INSERT INTO AiPlanPurchases')) return ok();
       if(sql.includes('INSERT INTO VoucherRedemptions')) return ok();
+      if(sql.includes('INSERT INTO PurchaseIdempotency')) return Promise.resolve({ recordset: [] });
+      
+      // UPDATE statements
+      if(sql.includes('UPDATE PurchaseIdempotency')) return Promise.resolve({ recordset: [], rowsAffected: [1] });
+      if(sql.includes('UPDATE Vouchers SET usedCount')) return Promise.resolve({ recordset: [], rowsAffected: [1] });
+      if(sql.includes('UPDATE AiPlanPurchases SET paymentStatus')) return Promise.resolve({ recordset: [], rowsAffected: [1] });
+      if(sql.includes('UPDATE UserAiAccounts SET highCredits')) return Promise.resolve({ recordset: [], rowsAffected: [1] });
+      
+      // DELETE statements
+      if(sql.includes('DELETE FROM PurchaseIdempotency')) return Promise.resolve({ recordset: [], rowsAffected: [1] });
+      
+      // Transaction support
+      if(sql.includes('BEGIN TRANSACTION') || sql.includes('COMMIT TRANSACTION') || sql.includes('ROLLBACK TRANSACTION')) {
+        return Promise.resolve({ recordset: [] });
+      }
+      
       return ok();
     };
   });

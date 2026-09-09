@@ -12,6 +12,15 @@ let pricingSelectedPlan = null;
 let pricingPollTimer = null;
 let pricingPollAttempts = 0;
 let pricingLastPurchaseId = null;
+// Idempotency key lifecycle: one stable key per (plan, voucher) selection.
+// Generated when the modal session starts or the selection changes; every
+// retry/re-click reuses the SAME key so the server replays instead of
+// duplicating. Server/database remains authoritative.
+let pricingIdemKey = null;
+function newPricingIdemKey(planId) {
+  pricingIdemKey = 'pricing-' + String(planId || 'na') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  return pricingIdemKey;
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   updateAuthLinks();
@@ -121,6 +130,7 @@ function handleBuy(plan){
   pricingSelectedPlan = plan;
   pricingSelectedVoucher = '';
   pricingQuoteCache = null;
+  newPricingIdemKey(plan && plan.id);
   if(typeof auth === 'undefined' || !auth.isLoggedIn()){
     sessionStorage.setItem('blankup_pending_plan', plan.id);
     showToast('Vui lòng đăng nhập để mua gói.', 'warning');
@@ -158,6 +168,7 @@ function openPricingModal(plan){
       const val = list.querySelector('input[name="pricingVoucherChoice"]:checked')?.value || '';
       document.getElementById('pricingVoucherInput').value = val;
       pricingSelectedVoucher = val;
+      if (pricingSelectedPlan) newPricingIdemKey(pricingSelectedPlan.id);
       if(plan) triggerPricingQuote(plan.id, val);
     });
   });
@@ -222,6 +233,7 @@ function initPricingModal(){
   document.getElementById('pricingVoucherApply')?.addEventListener('click', ()=>{
     const code = (document.getElementById('pricingVoucherInput').value||'').trim().toUpperCase();
     pricingSelectedVoucher = code;
+    if (pricingSelectedPlan) newPricingIdemKey(pricingSelectedPlan.id);
     // sync radio
     const radios = document.querySelectorAll('input[name="pricingVoucherChoice"]');
     let matched=false; radios.forEach(r=>{ if(r.value===code){ r.checked=true; matched=true; }});
@@ -230,6 +242,7 @@ function initPricingModal(){
   });
   document.getElementById('pricingVoucherClear')?.addEventListener('click', ()=>{
     document.getElementById('pricingVoucherInput').value=''; pricingSelectedVoucher='';
+    if (pricingSelectedPlan) newPricingIdemKey(pricingSelectedPlan.id);
     document.querySelectorAll('input[name="pricingVoucherChoice"]').forEach(r=> r.value==='' ? r.checked=true : r.checked=false);
     if(pricingSelectedPlan) triggerPricingQuote(pricingSelectedPlan.id, '');
   });
@@ -240,7 +253,8 @@ function initPricingModal(){
     try{
       const planId = pricingSelectedPlan.id;
       const voucherCode = pricingSelectedVoucher;
-      const idempotencyKey = 'pricing-'+planId+'-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
+      // Reuse the session key so timeouts/retries replay instead of duplicating.
+      const idempotencyKey = pricingIdemKey || newPricingIdemKey(planId);
       const resp = await fetch(`${API_BASE}/ai-plans/purchase`, { method:'POST', headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey, ...auth.getAuthHeaders()}, body: JSON.stringify({ planId, voucherCode: voucherCode||undefined }) });
       const data = await resp.json();
       if(!resp.ok || !data.success) throw new Error(data.error||'Không tạo được đơn');

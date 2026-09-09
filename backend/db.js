@@ -597,10 +597,43 @@ async function ensureProfessionalConstraints() {
     `);
     console.log('[DB] Indexes ensured.');
 
+    // Persistent purchase idempotency (survives restart/deploy/cross-process).
+    // All statements idempotent and safe to re-run. No existing data touched.
+    await r.query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='PurchaseIdempotency' AND xtype='U')
+        CREATE TABLE PurchaseIdempotency (
+          userId      NVARCHAR(50)   NOT NULL,
+          idemKey     NVARCHAR(100)  NOT NULL,
+          bodyHash    NVARCHAR(64)   NOT NULL,
+          responseJson NVARCHAR(MAX) NULL,
+          status      NVARCHAR(20)   NOT NULL DEFAULT N'in_progress',
+          createdAt   DATETIME       NOT NULL DEFAULT GETDATE(),
+          updatedAt   DATETIME       NULL,
+          CONSTRAINT PK_PurchaseIdempotency PRIMARY KEY (userId, idemKey)
+        );
+      IF COL_LENGTH(N'AiPlanPurchases', N'idempotencyKey') IS NULL
+        ALTER TABLE dbo.AiPlanPurchases ADD idempotencyKey NVARCHAR(100) NULL;
+    `);
+    // Unique transferContent: only when no duplicates exist (never force).
+    try {
+      await r.query(`
+        IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_AiPlanPurchases_transferContent' AND object_id = OBJECT_ID('dbo.AiPlanPurchases'))
+        BEGIN
+          IF NOT EXISTS (SELECT transferContent FROM dbo.AiPlanPurchases WHERE transferContent IS NOT NULL GROUP BY transferContent HAVING COUNT(*) > 1)
+            CREATE UNIQUE INDEX UX_AiPlanPurchases_transferContent ON dbo.AiPlanPurchases(transferContent) WHERE transferContent IS NOT NULL;
+        END
+      `);
+    } catch (uqErr) {
+      console.warn('[DB] Skipping transferContent unique index:', uqErr.message);
+    }
+    console.log('[DB] Purchase idempotency storage ensured.');
+
     // SchemaVersion
     await r.query(`
       IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersion WHERE version = 2)
         INSERT INTO dbo.SchemaVersion (version, description) VALUES (2, N'Professional schema: FK, INDEX, CHECK, updatedAt, isShared');
+      IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersion WHERE version = 3)
+        INSERT INTO dbo.SchemaVersion (version, description) VALUES (3, N'Persistent purchase idempotency + transferContent uniqueness guard');
     `);
   } catch (err) {
     console.warn('[DB] ensureProfessionalConstraints warning (non-fatal):', err.message);

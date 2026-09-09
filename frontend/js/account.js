@@ -30,6 +30,13 @@ let currentCredits = null;
 let availableVouchers = [];
 let selectedVoucherCode = ''; // empty = no voucher
 let selectedPlanId = null;
+// Idempotency key lifecycle: one stable key per (plan, voucher) selection.
+// Retries reuse the SAME key so the server replays instead of duplicating.
+let accountIdemKey = null;
+function newAccountIdemKey(planId) {
+  accountIdemKey = 'acc-' + String(planId || 'na') + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+  return accountIdemKey;
+}
 let quoteCache = null; // last quote data
 let quoteLoading = false;
 let currentPlans = [];
@@ -283,8 +290,13 @@ function updateVoucherStatus(type, msg) {
 
 async function triggerQuote(planId, voucherCode) {
   if (quoteLoading) return;
+  // New voucher selection = new idempotency key for a new purchase attempt.
+  // The key is scoped to (plan, voucher) so changing voucher gets a new key.
+  if (planId !== selectedPlanId || voucherCode !== selectedVoucherCode) {
+    newAccountIdemKey(planId);
+  }
+  quoteLoading = true;
   const preview = document.getElementById('voucherQuotePreview');
-  const statusTypeMap = {
     'Mã voucher không tồn tại.': 'error',
     'Voucher không hoạt động.': 'error',
     'Voucher chưa bắt đầu.': 'warning',
@@ -399,6 +411,10 @@ async function openPurchaseModalForPlan(planId) {
   if (!quoteCache || quoteCache.planId !== planId || (quoteCache.voucher?.code || '') !== (selectedVoucherCode || '')) {
     await triggerQuote(planId, selectedVoucherCode);
   }
+  // Generate a fresh idempotency key for this new purchase modal session.
+  // Retries within the same modal will reuse this key; changing voucher/plan will
+  // create a new key via triggerQuote.
+  newAccountIdemKey(planId);
   const q = quoteCache;
   if (!q) { showToast('Không thể lấy giá. Vui lòng thử lại.', 'error'); return; }
   showPlanPurchaseModal({ plan, quote: q });
@@ -410,16 +426,17 @@ async function purchasePlan(planId) { // legacy entry, redirect to modal
 
 async function confirmPurchase(planId, voucherCode) {
   if (!auth.isLoggedIn()) { showToast('Vui lòng đăng nhập để mua gói.', 'warning'); return; }
-  const idempotencyKey = 'acc-' + planId + '-' + Date.now() + '-' + Math.random().toString(36).slice(2,6);
+  // Use stable idempotency key for this (plan, voucher) session.
+  // Reuses the SAME key across retries so the server replays instead of duplicating.
+  const idempotencyKey = accountIdemKey || newAccountIdemKey(planId);
   try {
     const resp = await fetch(`${API_BASE}/ai-plans/purchase`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey, ...auth.getAuthHeaders() },
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': accountIdemKey, ...auth.getAuthHeaders() },
       body: JSON.stringify({ planId, voucherCode: voucherCode || undefined })
     });
     const data = await resp.json();
     if (!resp.ok || data.success === false) throw new Error(data.error || 'Không thể tạo đơn mua.');
-    // Update modal with real purchase data (finalAmount backend)
     return data;
   } catch (err) { throw err; }
 }
