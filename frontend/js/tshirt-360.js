@@ -31,12 +31,16 @@ const GARMENT_REGISTRY = {
   hoodie: {
     id: 'hoodie',
     name: 'Hoodie',
-    modelUrl: null, // <-- set to 'assets/models/hoodie-web.glb' when the real asset lands
-    available3D: false,
-    decalTarget: null,
-    decal: null,
-    camera: null,
-    printArea: { configured: false },
+    modelUrl: 'assets/models/hoodie-web.glb',
+    available3D: true,
+    // Sketchfab nodes are generic (Object_N); FRONT lives in material names
+    // (Force_Fleece_FRONT, 2x2_Rib_FRONT, Fabric374733_FRONT). Decal stays on
+    // front fabrics; color tints the whole garment (incl. side panels).
+    decalTarget: /FRONT/i,
+    colorTarget: /./,
+    decal: { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 },
+    camera: { distanceK: 2.45, heightK: 0.06 },
+    printArea: { configured: true },
   },
   polo: {
     id: 'polo',
@@ -66,6 +70,7 @@ const viewer = {
   pendingColor: '#ffffff',
   decalMeshes: [],
   shirtMeshes: [],
+  colorMeshes: [],
   appliedDesignUrl: null,
 };
 
@@ -247,6 +252,7 @@ function disposeCurrentModel() {
     viewer.model = null;
   }
   viewer.shirtMeshes = [];
+  viewer.colorMeshes = [];
   viewer.bounds = null;
 }
 
@@ -289,11 +295,27 @@ function loadGarmentModel(entry) {
 
 function onModelLoaded(model, entry) {
   const targetRe = entry.decalTarget instanceof RegExp ? entry.decalTarget : null;
+  const colorRe = entry.colorTarget instanceof RegExp ? entry.colorTarget : null;
+  // Sketchfab-sourced models use generic node names (Object_N) with the real
+  // part names living in MATERIALS — match against both so decalTarget keeps
+  // working for curated models (name match) and generic ones (material match).
+  const matchTarget = (object) => {
+    if (!targetRe) return false;
+    if (targetRe.test(object.name || '')) return true;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    return materials.some((m) => targetRe.test(m?.name || ''));
+  };
   model.traverse((object) => {
     if (!object.isMesh) return;
     object.castShadow = true;
     object.receiveShadow = true;
-    if (targetRe && targetRe.test(object.name || '')) viewer.shirtMeshes.push(object);
+    if (matchTarget(object)) viewer.shirtMeshes.push(object);
+    if (!colorRe) return;
+    if (colorRe.test(object.name || '')) viewer.colorMeshes.push(object);
+    else {
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      if (materials.some((m) => colorRe.test(m?.name || ''))) viewer.colorMeshes.push(object);
+    }
   });
 
   if (!viewer.shirtMeshes.length) {
@@ -301,6 +323,8 @@ function onModelLoaded(model, entry) {
       if (object.isMesh) viewer.shirtMeshes.push(object);
     });
   }
+  // Default: color follows the decal set (tshirt behavior unchanged).
+  if (!viewer.colorMeshes.length) viewer.colorMeshes = [...viewer.shirtMeshes];
 
   viewer.model = model;
   viewer.modelUrl = entry.modelUrl;
@@ -331,7 +355,7 @@ function frameModel(side = 'front', entry) {
 }
 
 function applyColor(color) {
-  viewer.shirtMeshes.forEach((mesh) => {
+  viewer.colorMeshes.forEach((mesh) => {
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     materials.forEach((material) => {
       if (material?.color) material.color.set(color);
