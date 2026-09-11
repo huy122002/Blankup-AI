@@ -134,6 +134,7 @@ app.use('/api/admin', require('./routes/admin-commerce'));
 app.use('/api/admin', require('./routes/admin-reports'));
 app.use('/api/payment', require('./routes/payment'));
 app.use('/api/stats', require('./routes/stats'));
+app.use('/api/assets', require('./routes/assets'));
 
 // API 404 for unknown /api routes (before SPA fallback)
 app.use('/api', notFoundHandler);

@@ -109,11 +109,12 @@ const state = {
   currentView: 'front',
   selectedStyle: 'minimalist',
   uploadedFile: null,
+  uploadedFilePreviewUrl: null,
   printDesignUrl: null,
   preparedDesignUrls: { front: null, back: null },
   // Multi-design layers: independent entities per garment side.
   // layer = { id, url, x, y, scale, rotation, visible, z, name,
-  //           designId, prompt, style }
+  //           designId, prompt, style, assetId, kind }
   designLayers: { front: [], back: [] },
   selectedLayerId: { front: null, back: null },
   lastGenerated: { front: null, back: null },
@@ -131,6 +132,10 @@ const state = {
   designProcessVersion: 0,
   viewer3d: null,
   cssViewer: null,
+  // Asset library for uploaded assets (kind='asset')
+  assetLibrary: [],
+  // Pending reference asset for AI generation
+  pendingReferenceAssetId: null,
 };
 
 function getFrontDesignUrl(d = state.currentDesign) { return d?.frontDesignUrl || d?.designUrl || ''; }
@@ -1099,12 +1104,15 @@ function initUpload() {
   const preview = document.getElementById('uploadPreview');
   const previewImg = document.getElementById('uploadPreviewImg');
   const removeBtn = document.getElementById('removeUpload');
+  const placeBtn = document.getElementById('placeUploadBtn');
+  const uploadModeAsset = document.getElementById('uploadModeAsset');
+  const uploadModeReference = document.getElementById('uploadModeReference');
   if (!dropzone || !fileInput) return;
 
   // A11y: make dropzone focusable and operable via keyboard
   if (!dropzone.hasAttribute('tabindex')) dropzone.setAttribute('tabindex', '0');
   dropzone.setAttribute('role', 'button');
-  dropzone.setAttribute('aria-label', 'Upload ảnh tham khảo');
+  dropzone.setAttribute('aria-label', 'Upload ảnh');
 
   let dragCounter = 0;
   let errorTimer = null;
@@ -1137,6 +1145,7 @@ function initUpload() {
       previewImg.style.visibility = '';
       previewImg.removeAttribute('hidden');
       previewImg.src = e.target.result;
+      state.uploadedFilePreviewUrl = e.target.result;
       preview.style.display = 'block';
       dropzone.style.display = 'none';
       // Sprint 1: preview scale .88 → 1
@@ -1155,14 +1164,56 @@ function initUpload() {
     reader.readAsDataURL(file);
   }
 
-  function handleFile(file) {
+  function getCurrentUploadMode() {
+    return uploadModeReference?.checked ? 'reference' : 'asset';
+  }
+
+  async function uploadFileToServer(file, kind) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('kind', kind);
+    const res = await fetch(`${API_BASE}/assets/upload`, {
+      method: 'POST',
+      headers: { Authorization: auth.token ? `Bearer ${auth.token}` : '' },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Upload failed');
+    return data.asset;
+  }
+
+  async function handleFile(file) {
     if (!file.type.startsWith('image/')) { showError('Chỉ chấp nhận file ảnh!'); return; }
     if (file.size > 10 * 1024 * 1024) { showError('File quá lớn (tối đa 10MB)!'); return; }
+    
     state.uploadedFile = file;
-    // PROCESSING → PREVIEW (FileReader async, but we treat as preview)
     dropzone.classList.remove('is-dragging', 'dragover');
     dropzone.style.willChange = '';
     showPreview(file);
+
+    // For asset mode: upload to server immediately to get assetId
+    const mode = getCurrentUploadMode();
+    if (mode === 'asset') {
+      try {
+        placeBtn.disabled = true;
+        placeBtn.innerHTML = '<span class="generate-btn-spinner"></span><span>Đang tải...</span>';
+        const asset = await uploadFileToServer(file, 'asset');
+        // Store asset in library for later placement
+        if (!state.assetLibrary) state.assetLibrary = [];
+        state.assetLibrary.unshift(asset);
+        placeBtn.disabled = false;
+        placeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span>Đặt lên áo</span>';
+        if (window.showToast) window.showToast('Ảnh đã sẵn sàng. Bấm "Đặt lên áo" để thêm vào thiết kế.', 'success');
+      } catch (err) {
+        placeBtn.disabled = false;
+        placeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg><span>Đặt lên áo</span>';
+        if (window.showToast) window.showToast(err.message || 'Tải ảnh thất bại', 'error');
+      }
+    } else {
+      // Reference mode: just show preview, upload happens when generating
+      placeBtn.style.display = 'none';
+      if (window.showToast) window.showToast('Chế độ tham chiếu AI. Bấm "Tạo Design" để sinh thiết kế từ ảnh này.', 'info');
+    }
   }
 
   // Click / keyboard
@@ -1180,7 +1231,6 @@ function initUpload() {
   });
   dropzone.addEventListener('dragover', (e) => {
     e.preventDefault();
-    // keep is-dragging during dragover
     if (!dropzone.classList.contains('is-dragging')) {
       dropzone.classList.add('is-dragging');
     }
@@ -1205,6 +1255,22 @@ function initUpload() {
   // File picker
   fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
+  // Mode radio change
+  if (uploadModeAsset && uploadModeReference) {
+    const updateModeUI = () => {
+      const mode = getCurrentUploadMode();
+      if (mode === 'asset') {
+        placeBtn.style.display = '';
+        placeBtn.textContent = 'Đặt lên áo';
+      } else {
+        placeBtn.style.display = 'none';
+      }
+    };
+    uploadModeAsset.addEventListener('change', updateModeUI);
+    uploadModeReference.addEventListener('change', updateModeUI);
+    updateModeUI();
+  }
+
   // Broken preview file (e.g. corrupt data URL): fall back to dropzone, never a broken box
   previewImg?.addEventListener('error', () => {
     state.uploadedFile = null;
@@ -1212,12 +1278,30 @@ function initUpload() {
     preview.style.display = 'none';
     dropzone.style.display = 'flex';
     setIdle();
-    if (window.showToast) window.showToast('Không đọc được ảnh này. Hãy thử file PNG/JPG/WEBP khác.', 'warning');
+    if (window.showToast) window.showToast('Không đọc được ảnh này. Hãy thử file PNG/JPG/WEBP/GIF khác.', 'warning');
   });
+
+  // Place on shirt button
+  if (placeBtn) {
+    placeBtn.addEventListener('click', async () => {
+      if (!state.uploadedFile) return;
+      const mode = getCurrentUploadMode();
+      if (mode !== 'asset') return;
+      
+      // Find the asset in library (most recent upload)
+      const asset = state.assetLibrary?.find(a => a.url === state.uploadedFilePreviewUrl || a.name === state.uploadedFile.name);
+      if (asset) {
+        placeUploadedAsset(asset.assetId);
+      }
+      // Clear upload state
+      removeBtn?.click();
+    });
+  }
 
   // Remove → IDLE with fade out
   if (removeBtn) removeBtn.addEventListener('click', () => {
     state.uploadedFile = null;
+    state.uploadedFilePreviewUrl = null;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     if (!reduce && preview.style.display !== 'none') {
       preview.classList.add('leaving');
@@ -1227,13 +1311,14 @@ function initUpload() {
         preview.classList.remove('leaving', 'entering');
         preview.style.willChange = '';
         dropzone.style.display = 'flex';
-        // Ensure dropzone is clean idle
+        placeBtn.style.display = 'none';
         setIdle();
         preview.removeEventListener('animationend', h);
       }, {once:true});
     } else {
       preview.style.display = 'none';
       dropzone.style.display = 'flex';
+      placeBtn.style.display = 'none';
       setIdle();
     }
     fileInput.value = '';
@@ -1679,6 +1764,7 @@ async function generateFromImage() {
   if (!state.uploadedFile) { if(_imgBtnEarly) shakeButton(_imgBtnEarly); showToast('Vui lòng upload ảnh!', 'warning'); return; }
   const idea = document.getElementById('ideaInput')?.value?.trim() || '';
   const btn = document.getElementById('generateImageBtn');
+  const mode = document.getElementById('uploadModeReference')?.checked ? 'reference' : 'asset';
   updateActionButtons(false);
   setLoading(btn, true);
   startGenProgress();
@@ -1690,6 +1776,7 @@ async function generateFromImage() {
     formData.append('style', state.selectedStyle);
     formData.append('customText', state.customText);
     formData.append('author', auth.user?.fullName || auth.user?.username || '');
+    formData.append('mode', mode);
 
     const imgController = new AbortController();
     const imgTimeout = setTimeout(() => imgController.abort(), GEN_FETCH_TIMEOUT_MS);
@@ -1706,6 +1793,10 @@ async function generateFromImage() {
       state.currentDesign = data;
       completeGenProgress(true);
       state.lastGenerated.front = data.designUrl;
+      // Store reference asset ID if in reference mode
+      if (mode === 'reference' && data.referenceAssetId) {
+        state.pendingReferenceAssetId = data.referenceAssetId;
+      }
       await showDesignOnMockup(data.designUrl, data.productMockupUrl, data.productMockupBlank, undefined, { name: String(data.prompt || 'Ảnh remix').slice(0, 24), designId: data.designId, prompt: data.prompt, style: data.style });
       updateShareButton();
       saveToHistory(data);
@@ -2025,7 +2116,7 @@ function selectLayer(side, id) {
   return sel;
 }
 
-function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotation } = {}) {
+function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotation, assetId, kind } = {}) {
   if (!url) return null;
   const k = side === 'back' ? 'back' : 'front';
   const layers = sideLayers(k);
@@ -2033,7 +2124,8 @@ function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotat
   const layer = sanitizeLayer({
     id: layerUid('layer'),
     url,
-    kind: 'image',
+    kind: kind || 'image',
+    assetId: assetId || null,
     x: x !== undefined ? x : 0,
     y: y !== undefined ? y : -12,
     scale: scale !== undefined ? scale : 1,
@@ -2050,6 +2142,41 @@ function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotat
   state.selectedLayerId[k] = layer.id;
   state.printPlacement = { x: layer.x, y: layer.y, scale: layer.scale };
   syncCurrentDesignFromSelection(k);
+  return layer;
+}
+
+/**
+ * Place an uploaded asset (kind='asset') onto the current side as a new layer.
+ * Called when user clicks "Đặt lên áo" in upload preview.
+ */
+function placeUploadedAsset(assetId) {
+  const asset = state.assetLibrary?.find(a => a.assetId === assetId);
+  if (!asset) {
+    if (window.showToast) window.showToast('Không tìm thấy asset', 'warning');
+    return null;
+  }
+  // Guard: only place assets of kind 'asset', not 'reference'
+  if (asset.kind !== 'asset') {
+    if (window.showToast) window.showToast('Chỉ có thể đặt decal từ ảnh upload (không phải tham chiếu AI)', 'warning');
+    return null;
+  }
+  const side = state.currentView;
+  const layer = addLayer(side, {
+    url: asset.url,
+    assetId: asset.assetId,
+    kind: 'asset',
+    name: asset.name,
+  });
+  if (layer) {
+    if (window.showToast) window.showToast(`Đã thêm "${asset.name}" lên mặt ${side === 'front' ? 'trước' : 'sau'}`, 'success');
+    // Refresh views to show new layer
+    refreshSideViews().then(() => {
+      updatePrice();
+      updateActionButtons(true);
+      updateSideBadge();
+      updateBackDesignControls();
+    });
+  }
   return layer;
 }
 

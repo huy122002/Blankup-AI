@@ -899,15 +899,23 @@ router.post('/generate', authenticate, async (req, res) => {
 // ---------------------------------------------------------------------------
 // POST /api/ai-design/generate-from-image
 // AI design generation from an uploaded image — requires authentication
+// Supports mode: 'reference' (default) | 'asset'
+// - reference: store as reference asset, return referenceAssetId, no layer created
+// - asset: store as asset, return assetId (for backward compat, but user should use /api/assets/upload + place)
 // ---------------------------------------------------------------------------
 router.post('/generate-from-image', authenticate, upload.single('image'), async (req, res) => {
   try {
     const idea = req.body.idea || '';
     const author = req.body.author || 'Guest';
+    const mode = req.body.mode || 'reference'; // 'reference' | 'asset'
     const file = req.file;
 
     if (!file) {
       return res.status(400).json({ success: false, error: 'An image file is required.' });
+    }
+
+    if (!['reference', 'asset'].includes(mode)) {
+      return res.status(400).json({ success: false, error: 'Invalid mode. Must be "reference" or "asset".' });
     }
 
     // Step 1: Deduct credit BEFORE generation
@@ -957,8 +965,10 @@ router.post('/generate-from-image', authenticate, upload.single('image'), async 
       }
     }
 
-    console.log(`[AI-Design] Generated design ${designId} via ${provider} from image: "${file.filename}" idea: "${idea}"`);
-    saveDesignRecord({
+    console.log(`[AI-Design] Generated design ${designId} via ${provider} from image: "${file.filename}" idea: "${idea}" mode: ${mode}`);
+
+    // Save design record with mode-specific fields
+    const designRecord = {
       designId,
       prompt: idea || 'Remix from image',
       style: 'abstract',
@@ -967,21 +977,59 @@ router.post('/generate-from-image', authenticate, upload.single('image'), async 
       designUrl,
       sourceImage: `/uploads/${file.filename}`,
       finalPrompt,
-    });
+    };
 
-    res.json({
+    let referenceAssetId = null;
+    if (mode === 'reference') {
+      // Create a reference asset record for tracking
+      const { readJson, writeJson, withLock, DATA_DIR } = require('../utils/fileStore');
+      const assetsFile = path.join(DATA_DIR, 'assets.json');
+      const { v4: uuidv4 } = require('uuid');
+      referenceAssetId = uuidv4();
+      const referenceAsset = {
+        assetId: referenceAssetId,
+        userId: req.user.id,
+        originalName: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        width: 0,
+        height: 0,
+        storagePath: path.join(__dirname, '..', 'uploads', file.filename),
+        publicUrl: `/uploads/${file.filename}`,
+        checksum: '',
+        exifStripped: false,
+        createdAt: new Date().toISOString(),
+        kind: 'reference',
+        deletedAt: null,
+      };
+      await withLock(assetsFile, async () => {
+        const assets = readJson(assetsFile) || [];
+        assets.push(referenceAsset);
+        writeJson(assetsFile, assets);
+      });
+      designRecord.referenceAssetId = referenceAssetId;
+    }
+
+    saveDesignRecord(designRecord);
+
+    const response = {
       success: true,
       designId,
       designUrl,
-      uploadedFile: file.filename,
-      idea,
-      author,
-      provider,
-      finalPrompt,
-    });
+      productMockupUrl: designUrl,
+      productMockupBlank: designUrl,
+      prompt: idea || 'Remix from image',
+      style: 'abstract',
+    };
+
+    if (mode === 'reference') {
+      response.referenceAssetId = referenceAssetId;
+    }
+
+    res.json(response);
   } catch (err) {
-    console.error('[AI-Design] Error generating from image:', err.message);
-    res.status(500).json({ success: false, error: 'Failed to generate design from image' });
+    console.error('[AI-Design] Generate from image error:', err.message);
+    res.status(500).json({ success: false, error: 'AI generation failed' });
   }
 });
 

@@ -163,21 +163,49 @@
         <!-- TAB: IMAGE -->
         <div class="panel-section tab-panel" data-panel="image">
           <div class="panel-section-header">
-            <h3>Upload ảnh tham khảo</h3>
+            <h3>Upload ảnh</h3>
           </div>
           <div class="panel-section-body">
             <div class="upload-zone" id="uploadDropzone" aria-describedby="uploadFormats">
-              <input type="file" id="imageUpload" accept="image/png,image/jpeg,image/webp" hidden>
+              <input type="file" id="imageUpload" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               <div class="upload-zone-text">Kéo thả ảnh vào đây</div>
               <div class="upload-zone-or">hoặc</div>
               <span class="upload-zone-browse">Chọn file</span>
-              <div class="upload-zone-formats" id="uploadFormats">PNG, JPG, WEBP (tối đa 10MB)</div>
+              <div class="upload-zone-formats" id="uploadFormats">PNG, JPG, WEBP, GIF (tối đa 10MB)</div>
             </div>
             <div class="upload-preview" id="uploadPreview" style="display:none;">
-              <img id="uploadPreviewImg" alt="Ảnh tham khảo đã tải lên" decoding="async" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.style.visibility='hidden'">
-              <button class="upload-preview-remove" id="removeUpload" title="Xoá ảnh đã tải" aria-label="Xoá ảnh đã tải" type="button">✕</button>
+              <img id="uploadPreviewImg" alt="Ảnh đã tải lên" decoding="async" src="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect width='200' height='200' fill='%23ece4d3'/%3E%3Cg fill='none' stroke='%238e7657' stroke-width='2'%3E%3Crect x='40' y='50' width='120' height='100' rx='4'/%3E%3Ccircle cx='75' cy='80' r='8'/%3E%3Cpath d='M40 130l35-30 25 20 30-25 30 30v25H40z' fill='%23c19856' opacity='0.35'/%3E%3C/g%3E%3C/svg%3E" onerror="this.style.visibility='hidden'">
+              <div class="upload-preview-actions">
+                <button class="upload-preview-btn secondary" id="placeUploadBtn" title="Đặt lên áo" aria-label="Đặt ảnh này lên áo" type="button">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  <span>Đặt lên áo</span>
+                </button>
+                <button class="upload-preview-remove" id="removeUpload" title="Xoá ảnh đã tải" aria-label="Xoá ảnh đã tải" type="button">✕</button>
+              </div>
             </div>
+
+            <fieldset class="upload-mode-fieldset">
+              <legend class="panel-label">Chế độ sử dụng ảnh</legend>
+              <div class="radio-group">
+                <label class="radio-label">
+                  <input type="radio" name="uploadMode" value="asset" id="uploadModeAsset" checked>
+                  <span class="radio-custom"></span>
+                  <span class="radio-text">
+                    <strong>Đặt làm decal</strong>
+                    <small>Đưa ảnh lên áo như logo/decoration, có thể move/resize/rotate độc lập</small>
+                  </span>
+                </label>
+                <label class="radio-label">
+                  <input type="radio" name="uploadMode" value="reference" id="uploadModeReference">
+                  <span class="radio-custom"></span>
+                  <span class="radio-text">
+                    <strong>Dùng làm tham chiếu AI</strong>
+                    <small>AI sẽ tạo thiết kế mới dựa trên ảnh này (giữ nguyên prompt)</small>
+                  </span>
+                </label>
+              </div>
+            </fieldset>
 
             <div class="panel-label">Mô tả ý tưởng</div>
             <textarea class="prompt-input" id="ideaInput" rows="3" maxlength="1000"
