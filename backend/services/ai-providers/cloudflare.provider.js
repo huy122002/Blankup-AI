@@ -6,16 +6,24 @@ const { BaseAIProvider, AIProviderError } = require('./base.provider');
 const uploadsDir = path.join(__dirname, '../../uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
+function detectImageExt(buffer) {
+  if (!buffer || buffer.length < 12) return null;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return 'png';
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) return 'jpg';
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) return 'gif';
+  if (buffer.slice(0, 4).toString() === 'RIFF' && buffer.slice(8, 12).toString() === 'WEBP') return 'webp';
+  return null;
+}
+
 function saveGeneratedImage(base64Image, designId) {
   if (!base64Image) throw new Error('AI response did not include image data.');
-  const fileName = `${designId}.png`;
-  const filePath = path.join(uploadsDir, fileName);
-  fs.writeFileSync(filePath, Buffer.from(base64Image, 'base64'));
-  return `/uploads/${fileName}`;
+  return saveGeneratedImageBuffer(Buffer.from(base64Image, 'base64'), designId);
 }
 function saveGeneratedImageBuffer(buffer, designId) {
   if (!buffer || !buffer.length) throw new Error('AI response did not include image data.');
-  const fileName = `${designId}.png`;
+  // REAL flux-1-schnell returns JPEG — never blindly label bytes as PNG.
+  const ext = detectImageExt(buffer) || 'png';
+  const fileName = `${designId}.${ext}`;
   const filePath = path.join(uploadsDir, fileName);
   fs.writeFileSync(filePath, buffer);
   return `/uploads/${fileName}`;
@@ -35,6 +43,7 @@ async function postCloudflareJson(accountId, apiToken, model, body, timeoutMs) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${model}`;
+
   try {
     const resp = await fetch(url, {
       method: 'POST',
@@ -73,12 +82,18 @@ class CloudflareProvider extends BaseAIProvider {
     return this.config.cloudflare.enabled && !!this.apiToken && !!this.accountId && typeof fetch === 'function';
   }
 
-  async generateImage({ prompt, designId, finalPrompt }) {
+  async generateImage({ prompt, designId, finalPrompt, steps }) {
     if (!this.isAvailable()) {
       throw new AIProviderError({ provider: this.name, code: 'CONFIG_ERROR', message: 'Cloudflare not configured', retryable: false });
     }
+    // flux-1-schnell constraints: prompt required, max 2048 chars; steps default 4, max 8.
+    const text = String(finalPrompt || prompt || '').slice(0, 2048);
+    if (!text) {
+      throw new AIProviderError({ provider: this.name, code: 'VALIDATION_ERROR', message: 'A prompt is required.', retryable: false });
+    }
+    const nSteps = Math.min(8, Math.max(1, Number(steps) || 4));
     try {
-      const data = await postCloudflareJson(this.accountId, this.apiToken, this.imageModel, { prompt: finalPrompt || prompt }, this.timeoutMs);
+      const data = await postCloudflareJson(this.accountId, this.apiToken, this.imageModel, { prompt: text, steps: nSteps }, this.timeoutMs);
       let designUrl;
       if (data.imageBuffer) designUrl = saveGeneratedImageBuffer(data.imageBuffer, designId);
       else designUrl = saveGeneratedImage(extractBase64Image(data), designId);

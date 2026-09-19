@@ -51,7 +51,7 @@ async function generateWithFallback({ prompt, style, designId, file, idea, enhan
     const maxR = (() => {
       if (providerName === 'omniroute') return cfg.omniroute.maxRetries;
       if (providerName === 'openai') return cfg.openai.maxRetries;
-      if (providerName === 'cloudflare') return 0; // Cloudflare has no retry concept, single attempt
+      if (providerName === 'cloudflare') return cfg.cloudflare.maxRetries;
       return 0;
     })();
     const retries = Math.max(0, maxR);

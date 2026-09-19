@@ -74,6 +74,7 @@ function getConfig() {
     imageModel: strEnv('CLOUDFLARE_IMAGE_MODEL', '@cf/black-forest-labs/flux-1-schnell'),
     promptModel: strEnv('CLOUDFLARE_PROMPT_MODEL', '@cf/meta/llama-3.1-8b-instruct'),
     timeoutMs: intEnv('CLOUDFLARE_TIMEOUT_MS', 90000),
+    maxRetries: intEnv('CLOUDFLARE_MAX_RETRIES', 1),
   };
   // Allow explicit override
   if (process.env.CLOUDFLARE_ENABLED !== undefined && process.env.CLOUDFLARE_ENABLED !== '') {
