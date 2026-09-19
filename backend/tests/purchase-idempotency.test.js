@@ -31,14 +31,18 @@ let SQL_OK = false;
 
 async function tryConnect() {
   try {
-    sql = require('mssql');
-    const server = process.env.SQL_SERVER || 'localhost';
+    // Use the msnodesqlv8 backend so Windows Auth works when SQL_USER/SQL_PASSWORD
+    // are not configured (mirrors db.js connection setup).
+    sql = require('mssql/msnodesqlv8');
+    const server = (process.env.SQL_SERVER || 'localhost').split('\\')[0];
+    const useWindowsAuth = !process.env.SQL_USER && !process.env.SQL_PASSWORD;
     pool = await sql.connect({
+      driver: process.env.SQL_ODBC_DRIVER || 'ODBC Driver 17 for SQL Server',
       server,
+      port: Number(process.env.SQL_PORT || 1433),
       database: process.env.SQL_DATABASE || 'BlankupDB',
-      user: process.env.SQL_USER || undefined,
-      password: process.env.SQL_PASSWORD || undefined,
-      options: { encrypt: false, trustServerCertificate: true },
+      ...(useWindowsAuth ? {} : { user: process.env.SQL_USER, password: process.env.SQL_PASSWORD }),
+      options: { encrypt: false, trustServerCertificate: true, ...(useWindowsAuth ? { trustedConnection: true } : {}) },
     });
     await pool.request().query('SELECT 1');
     return true;

@@ -5,7 +5,7 @@
  * Professional Edition: FK, CHECK, INDEX, SchemaVersion, unified columns.
  */
 
-const sql = require('mssql');
+const sql = require('mssql/msnodesqlv8');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -39,21 +39,33 @@ const SQL_SERVER = process.env.SQL_SERVER || 'localhost';
 const SQL_PORT = process.env.SQL_PORT;
 const SQL_USER = process.env.SQL_USER;
 const SQL_PASSWORD = process.env.SQL_PASSWORD;
-const isNamedInstance = SQL_SERVER.includes('\\');
+
+// Split "host\instance" — the msnodesqlv8 driver wants the instance name
+// as options.instanceName, not embedded in the server string.
+const [sqlHost, sqlInstance] = SQL_SERVER.split('\\');
+const isNamedInstance = Boolean(sqlInstance);
 const useWindowsAuth = !SQL_USER && !SQL_PASSWORD;
 
+// ODBC driver used by the msnodesqlv8 backend. The library's Windows default
+// is "SQL Server Native Client 11.0", which is often NOT installed; the ODBC
+// Driver 17/18 ships with SQL Server and modern installs.
+const SQL_ODBC_DRIVER = process.env.SQL_ODBC_DRIVER || 'ODBC Driver 17 for SQL Server';
+
 const DB_CONFIG = {
-  server: SQL_SERVER,
+  driver: SQL_ODBC_DRIVER,
+  server: sqlHost,
   ...(isNamedInstance
     ? {}
     : { port: Number(SQL_PORT || 1433) }),
   ...(useWindowsAuth
-    ? { trustedConnection: true }
+    ? {}
     : { user: SQL_USER, password: SQL_PASSWORD }),
   options: {
     encrypt: false,
     trustServerCertificate: true,
     enableArithAbort: true,
+    ...(isNamedInstance ? { instanceName: sqlInstance } : {}),
+    ...(useWindowsAuth ? { trustedConnection: true } : {}),
   },
   pool: {
     max: 10,

@@ -1,5 +1,7 @@
-const app = require('./app');
+// Load db.js first: it reads .env into process.env, and app.js's auth
+// middleware reads JWT_SECRET at require time.
 const { initDatabase } = require('./db');
+const app = require('./app');
 
 const PORT = process.env.PORT || 3000;
 const frontendDir = require('path').join(__dirname, '../frontend');
