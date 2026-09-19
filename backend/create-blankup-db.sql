@@ -6,6 +6,10 @@
   Script này có thể chạy tay hoặc db.js sẽ tự migration khi khởi động.
   Mật khẩu seed đã được hash bằng bcrypt ($2b$10$).
   Phiên bản chuyên nghiệp: FK, INDEX, CHECK, updatedAt, audit, migrations.
+  SchemaVersion 3: PurchaseIdempotency + AiPlanPurchases.idempotencyKey
+  + UX_AiPlanPurchases_transferContent (giống hệt db.js).
+  CẢNH BÁO: backup database trước khi chạy tay vào DB đang live —
+  section FK drop + tạo lại constraints để converge về đúng định nghĩa.
 */
 
 -- ============================================================
@@ -296,6 +300,23 @@ CREATE TABLE dbo.PendingRegistrations (
 );
 GO
 
+-- ------------------------------------------------------------
+-- 2.12 PurchaseIdempotency (SchemaVersion 3 — persistent purchase
+--      idempotency, survives restart/deploy/cross-process)
+-- ------------------------------------------------------------
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='PurchaseIdempotency' AND xtype='U')
+CREATE TABLE dbo.PurchaseIdempotency (
+  userId       NVARCHAR(50)   NOT NULL,
+  idemKey      NVARCHAR(100)  NOT NULL,
+  bodyHash     NVARCHAR(64)   NOT NULL,
+  responseJson NVARCHAR(MAX)  NULL,
+  status       NVARCHAR(20)   NOT NULL DEFAULT N'in_progress',
+  createdAt    DATETIME       NOT NULL DEFAULT GETDATE(),
+  updatedAt    DATETIME       NULL,
+  CONSTRAINT PK_PurchaseIdempotency PRIMARY KEY (userId, idemKey)
+);
+GO
+
 -- ============================================================
 -- 3. MIGRATIONS — Add missing columns for existing DBs
 -- ============================================================
@@ -339,6 +360,9 @@ IF COL_LENGTH(N'PendingRegistrations', N'lastEmailSentAt') IS NULL
   ALTER TABLE dbo.PendingRegistrations ADD lastEmailSentAt DATETIME NULL;
 IF COL_LENGTH(N'PendingRegistrations', N'lastPhoneSentAt') IS NULL
   ALTER TABLE dbo.PendingRegistrations ADD lastPhoneSentAt DATETIME NULL;
+-- SchemaVersion 3: persistent purchase idempotency key on purchases
+IF COL_LENGTH(N'AiPlanPurchases', N'idempotencyKey') IS NULL
+  ALTER TABLE dbo.AiPlanPurchases ADD idempotencyKey NVARCHAR(100) NULL;
 GO
 -- VerificationCodes.code must hold SHA-256 hex (64 chars)
 DECLARE @vcCodeLen INT = (SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'VerificationCodes' AND COLUMN_NAME = 'code');
@@ -379,16 +403,38 @@ IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_AiCreditLedg
   ALTER TABLE dbo.AiCreditLedger ADD CONSTRAINT CK_AiCreditLedger_quality CHECK (quality IN (N'low', N'high'));
 IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_VerificationCodes_type')
   ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT CK_VerificationCodes_type CHECK (type IN (N'email', N'phone'));
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Orders_paymentStatus')
+  ALTER TABLE dbo.Orders ADD CONSTRAINT CK_Orders_paymentStatus CHECK (paymentStatus IS NULL OR paymentStatus IN (N'pending', N'paid', N'failed', N'awaiting_transfer', N'underpaid'));
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Orders_finalPrice')
+  ALTER TABLE dbo.Orders ADD CONSTRAINT CK_Orders_finalPrice CHECK (finalPrice IS NULL OR finalPrice >= 0);
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Orders_discountAmount')
+  ALTER TABLE dbo.Orders ADD CONSTRAINT CK_Orders_discountAmount CHECK (discountAmount >= 0);
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_UserAiAccounts_highCredits')
+  ALTER TABLE dbo.UserAiAccounts ADD CONSTRAINT CK_UserAiAccounts_highCredits CHECK (highCredits >= 0);
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_UserAiAccounts_bonusLow')
+  ALTER TABLE dbo.UserAiAccounts ADD CONSTRAINT CK_UserAiAccounts_bonusLow CHECK (bonusLowCredits >= 0);
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_UserAiAccounts_dailyUsed')
+  ALTER TABLE dbo.UserAiAccounts ADD CONSTRAINT CK_UserAiAccounts_dailyUsed CHECK (dailyFreeLowCreditsUsed >= 0);
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_AiPlanPurchases_status')
+  ALTER TABLE dbo.AiPlanPurchases ADD CONSTRAINT CK_AiPlanPurchases_status CHECK (paymentStatus IN (N'pending', N'paid', N'failed'));
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_AiPlanPurchases_price')
+  ALTER TABLE dbo.AiPlanPurchases ADD CONSTRAINT CK_AiPlanPurchases_price CHECK (priceVnd >= 0 AND finalAmount >= 0 AND highCreditsAdded >= 0 AND lowCreditsAdded >= 0);
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_AiCreditLedger_amount')
+  ALTER TABLE dbo.AiCreditLedger ADD CONSTRAINT CK_AiCreditLedger_amount CHECK (amount <> 0);
+IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Vouchers_amounts')
+  ALTER TABLE dbo.Vouchers ADD CONSTRAINT CK_Vouchers_amounts CHECK (discountValue >= 0 AND minOrderAmount >= 0 AND bonusHighCredits >= 0 AND bonusLowCredits >= 0);
 GO
 
 -- ============================================================
 -- 5. FOREIGN KEYS — Referential integrity
 --
 -- SQL Server note:
---   All FK update actions use NO ACTION. Primary keys should not be
---   updated in normal application flow, and ON UPDATE CASCADE can create
---   multiple-cascade-path errors when several relationships converge.
---   DELETE actions are kept only where they are intentional and safe.
+--   Update actions follow backend/db.js (mostly ON UPDATE CASCADE).
+--   Do NOT "simplify" these to NO ACTION: db.js ensures the actions below
+--   via IF NOT EXISTS on every boot, so a live DB converged by the app
+--   already carries them. This script drops + recreates FKs ONLY to converge
+--   older databases to the same definitions — back up before running manual.
+--   DELETE actions are kept exactly as in db.js (intentional per relationship).
 -- ============================================================
 
 -- Drop existing FK constraints first so this script is safe to re-run
@@ -423,55 +469,55 @@ GO
 
 ALTER TABLE dbo.Orders ADD CONSTRAINT FK_Orders_Users
   FOREIGN KEY (userId) REFERENCES dbo.Users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE dbo.Designs ADD CONSTRAINT FK_Designs_Users
   FOREIGN KEY (userId) REFERENCES dbo.Users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  ON DELETE SET NULL ON UPDATE CASCADE;
 
 ALTER TABLE dbo.UserAiAccounts ADD CONSTRAINT FK_UserAiAccounts_Users
   FOREIGN KEY (userId) REFERENCES dbo.Users(id)
-  ON DELETE CASCADE ON UPDATE NO ACTION;
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE dbo.UserAiAccounts ADD CONSTRAINT FK_UserAiAccounts_AiPlans
   FOREIGN KEY (displayPlanId) REFERENCES dbo.AiPlans(id)
-  ON DELETE NO ACTION ON UPDATE NO ACTION;
+  ON DELETE NO ACTION ON UPDATE CASCADE;
 
 ALTER TABLE dbo.AiPlanPurchases ADD CONSTRAINT FK_AiPlanPurchases_Users
   FOREIGN KEY (userId) REFERENCES dbo.Users(id)
-  ON DELETE CASCADE ON UPDATE NO ACTION;
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE dbo.AiPlanPurchases ADD CONSTRAINT FK_AiPlanPurchases_AiPlans
   FOREIGN KEY (planId) REFERENCES dbo.AiPlans(id)
-  ON DELETE NO ACTION ON UPDATE NO ACTION;
+  ON DELETE NO ACTION ON UPDATE CASCADE;
 
 ALTER TABLE dbo.AiCreditLedger ADD CONSTRAINT FK_AiCreditLedger_Users
   FOREIGN KEY (userId) REFERENCES dbo.Users(id)
-  ON DELETE CASCADE ON UPDATE NO ACTION;
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE dbo.VoucherRedemptions ADD CONSTRAINT FK_VoucherRedemptions_Vouchers
   FOREIGN KEY (voucherId) REFERENCES dbo.Vouchers(id)
-  ON DELETE CASCADE ON UPDATE NO ACTION;
+  ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 ALTER TABLE dbo.VoucherRedemptions ADD CONSTRAINT FK_VoucherRedemptions_Users
   FOREIGN KEY (userId) REFERENCES dbo.Users(id)
-  ON DELETE NO ACTION ON UPDATE NO ACTION;
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE dbo.VoucherRedemptions ADD CONSTRAINT FK_VoucherRedemptions_Orders
   FOREIGN KEY (orderId) REFERENCES dbo.Orders(orderId)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 ALTER TABLE dbo.VoucherRedemptions ADD CONSTRAINT FK_VoucherRedemptions_Purchases
   FOREIGN KEY (purchaseId) REFERENCES dbo.AiPlanPurchases(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT FK_VerificationCodes_Users
   FOREIGN KEY (userId) REFERENCES dbo.Users(id)
-  ON DELETE CASCADE ON UPDATE NO ACTION;
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE dbo.Vouchers ADD CONSTRAINT FK_Vouchers_CreatedBy
   FOREIGN KEY (createdBy) REFERENCES dbo.Users(id)
-  ON DELETE SET NULL ON UPDATE NO ACTION;
+  ON DELETE SET NULL ON UPDATE CASCADE;
 GO
 
 -- ============================================================
@@ -516,8 +562,6 @@ IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_AiCreditLedger_userId'
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_AiCreditLedger_createdAt' AND object_id = OBJECT_ID('dbo.AiCreditLedger'))
   CREATE INDEX IX_AiCreditLedger_createdAt ON dbo.AiCreditLedger(createdAt DESC);
 
-IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Vouchers_code' AND object_id = OBJECT_ID('dbo.Vouchers'))
-  CREATE UNIQUE INDEX IX_Vouchers_code_unique ON dbo.Vouchers(code) WHERE code IS NOT NULL; -- already UNIQUE, but ensure filtered
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Vouchers_status' AND object_id = OBJECT_ID('dbo.Vouchers'))
   CREATE INDEX IX_Vouchers_status ON dbo.Vouchers(status, expiresAt);
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_VoucherRedemptions_voucherId' AND object_id = OBJECT_ID('dbo.VoucherRedemptions'))
@@ -541,6 +585,18 @@ IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_PendingRegistrations_u
   CREATE UNIQUE INDEX UX_PendingRegistrations_username ON dbo.PendingRegistrations(username) WHERE status = N'pending';
 IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_PendingRegistrations_expiresAt' AND object_id = OBJECT_ID('dbo.PendingRegistrations'))
   CREATE INDEX IX_PendingRegistrations_expiresAt ON dbo.PendingRegistrations(expiresAt) WHERE status = N'pending';
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_PendingRegistrations_email' AND object_id = OBJECT_ID('dbo.PendingRegistrations'))
+  CREATE INDEX IX_PendingRegistrations_email ON dbo.PendingRegistrations(email) WHERE email IS NOT NULL AND status = N'pending';
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_PendingRegistrations_phone' AND object_id = OBJECT_ID('dbo.PendingRegistrations'))
+  CREATE INDEX IX_PendingRegistrations_phone ON dbo.PendingRegistrations(phone) WHERE phone IS NOT NULL AND status = N'pending';
+GO
+
+-- Unique transferContent (SchemaVersion 3): only when no duplicates exist — never force.
+IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'UX_AiPlanPurchases_transferContent' AND object_id = OBJECT_ID('dbo.AiPlanPurchases'))
+BEGIN
+  IF NOT EXISTS (SELECT transferContent FROM dbo.AiPlanPurchases WHERE transferContent IS NOT NULL GROUP BY transferContent HAVING COUNT(*) > 1)
+    CREATE UNIQUE INDEX UX_AiPlanPurchases_transferContent ON dbo.AiPlanPurchases(transferContent) WHERE transferContent IS NOT NULL;
+END
 GO
 
 -- ============================================================
@@ -557,11 +613,11 @@ BEGIN
     dailyFreeLowCredits, outputQuality, planRank, isPaid, isComebackOffer, comebackWindowDays
   )
   VALUES
-    (N'plan-free',        N'free',         N'Free',          N'3 l\u1EA7n Low mi\u1EC5n ph\u00ED m\u1ED7i ng\u00E0y, c\u00F3 watermark.',                 0,     0, 0, 3, N'low',     0, 0, 0, NULL),
-    (N'plan-comeback',    N'comeback',     N'Comeback Offer', N'\u01AFu \u0111\u00E1i 7 ng\u00E0y sau khi d\u00F9ng h\u1EBFt Premium: 10 l\u1EA7n High.', 59000, 10, 0, 0, N'high',    1, 1, 1, 7),
-    (N'plan-premium',     N'premium',      N'Premium',        N'10 l\u1EA7n High, kh\u00F4ng watermark, s\u1EB5n s\u00E0ng \u0111\u1EC3 in.',              79000, 10, 0, 0, N'high',    2, 1, 0, NULL),
-    (N'plan-pro',         N'pro',          N'Pro',            N'18 l\u1EA7n High v\u00E0 t\u0103ng 3 l\u1EA7n Low.',                                      129000, 18, 3, 0, N'high',    3, 1, 0, NULL),
-    (N'plan-studio-plus', N'studio_plus',  N'Studio Plus',    N'30 l\u1EA7n High v\u00E0 t\u0103ng 5 l\u1EA7n Low cho ng\u01B0\u1EDDi d\u00F9ng nhi\u1EC1u.',199000, 30, 5, 0, N'high',    4, 1, 0, NULL);
+    (N'plan-free', N'free', N'Free', N'3 lượt Low miễn phí mỗi ngày, có watermark.', 0, 0, 0, 3, N'low', 0, 0, 0, NULL),
+    (N'plan-comeback', N'comeback', N'Comeback Offer', N'Ưu đãi 7 ngày sau khi dùng hết Premium: 10 lượt High.', 59000, 10, 0, 0, N'high', 1, 1, 1, 7),
+    (N'plan-premium', N'premium', N'Premium', N'10 lượt High, không watermark, sẵn sàng để in.', 79000, 10, 0, 0, N'high', 2, 1, 0, NULL),
+    (N'plan-pro', N'pro', N'Pro', N'18 lượt High và tặng 3 lượt Low.', 129000, 18, 3, 0, N'high', 3, 1, 0, NULL),
+    (N'plan-studio-plus', N'studio_plus', N'Studio Plus', N'30 lượt High và tặng 5 lượt Low cho người dùng nhiều.', 199000, 30, 5, 0, N'high', 4, 1, 0, NULL);
 END
 GO
 
@@ -576,10 +632,10 @@ BEGIN
   )
   VALUES (
     N'voucher-blankup50', N'BLANKUP50',
-    N'Gi\u1EA3m 50,000\u0111 cho giao d\u1ECDch t\u1EEB 100,000\u0111',
-    N'M\u00E3 h\u1EC7 th\u1ED1ng d\u00F9ng 1 l\u1EA7n m\u1ED7i t\u00E0i kho\u1EA3n cho \u0111\u01A1n/g\u00F3i \u0111\u1EE7 \u0111i\u1EC1u ki\u1EC7n.',
+    N'Giảm 50,000đ cho giao dịch từ 100,000đ',
+    N'Mã hệ thống dùng 1 lần mỗi tài khoản cho đơn/gói đủ điều kiện.',
     N'fixed', 50000, 100000, N'all', N'pro,studio_plus', 1, GETDATE(), N'active',
-    N'Seed m\u1EB7c \u0111\u1ECBnh theo ch\u00EDnh s\u00E1ch voucher \u0111\u1EA7u ti\u00EAn c\u1EE7a Blankup.'
+    N'Seed mặc định theo chính sách voucher đầu tiên của Blankup.'
   )
 END
 GO
@@ -588,16 +644,23 @@ GO
 -- 7.3 Users (bcrypt hashed passwords)
 --    admin123  => $2b$10$7lTxewS3aSn3W3.RqshzeO2uM1b/Ky3Q7s3giLfp/TanWcFxhZ7Su
 --    password123 => $2b$10$/HRY0wOY7w.N8mPU01aU8e/N.yC/w3OSLvBs0SEwshu6de4K1TB5W
+--    Mirrors backend/db.js seedAdminUser: admin is added when missing;
+--    sample users only when the Users table is completely empty
+--    (otherwise a re-run would PK-conflict on u-1/u-2/u-3).
+--    The count is captured BEFORE the admin insert, exactly like
+--    db.js seedAdminUser (which reads COUNT(*) at function start).
 -- ------------------------------------------------------------
+DECLARE @blankupUserCount INT = (SELECT COUNT(*) FROM dbo.Users);
 IF NOT EXISTS (SELECT 1 FROM dbo.Users WHERE username = N'admin')
-BEGIN
   INSERT INTO dbo.Users (id, username, password, fullName, role, provider, createdAt)
   VALUES
-    (N'u-admin', N'admin',   N'$2b$10$7lTxewS3aSn3W3.RqshzeO2uM1b/Ky3Q7s3giLfp/TanWcFxhZ7Su', N'System Admin', N'admin', N'local', '2026-06-01T12:00:00.000'),
+    (N'u-admin', N'admin',   N'$2b$10$7lTxewS3aSn3W3.RqshzeO2uM1b/Ky3Q7s3giLfp/TanWcFxhZ7Su', N'System Admin', N'admin', N'local', '2026-06-01T12:00:00.000');
+IF @blankupUserCount = 0
+  INSERT INTO dbo.Users (id, username, password, fullName, role, provider, createdAt)
+  VALUES
     (N'u-1',     N'minht',   N'$2b$10$/HRY0wOY7w.N8mPU01aU8e/N.yC/w3OSLvBs0SEwshu6de4K1TB5W', N'Minh T.',      N'user',  N'local', '2026-06-15T08:30:00.000'),
     (N'u-2',     N'ann',     N'$2b$10$/HRY0wOY7w.N8mPU01aU8e/N.yC/w3OSLvBs0SEwshu6de4K1TB5W', N'An N.',        N'user',  N'local', '2026-06-16T14:20:00.000'),
-    (N'u-3',     N'huongl',  N'$2b$10$/HRY0wOY7w.N8mPU01aU8e/N.yC/w3OSLvBs0SEwshu6de4K1TB5W', N'H\u01B0\u01A1ng L.', N'user', N'local', '2026-06-17T09:15:00.000');
-END
+    (N'u-3',     N'huongl',  N'$2b$10$/HRY0wOY7w.N8mPU01aU8e/N.yC/w3OSLvBs0SEwshu6de4K1TB5W', N'Hương L.', N'user', N'local', '2026-06-17T09:15:00.000');
 GO
 
 -- ------------------------------------------------------------
@@ -614,13 +677,16 @@ GO
 -- ------------------------------------------------------------
 IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersion WHERE version = 2)
   INSERT INTO dbo.SchemaVersion (version, description) VALUES (2, N'Professional schema: FK, INDEX, CHECK, updatedAt, isShared');
+IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersion WHERE version = 3)
+  INSERT INTO dbo.SchemaVersion (version, description) VALUES (3, N'Persistent purchase idempotency + transferContent uniqueness guard');
 GO
 
 PRINT '============================================================';
 PRINT '  BlankupDB initialized successfully — Professional Edition';
 PRINT '  Tables: Users, Orders, Designs, AiPlans, UserAiAccounts,';
 PRINT '          AiPlanPurchases, AiCreditLedger, Vouchers,';
-PRINT '          VoucherRedemptions, VerificationCodes, SchemaVersion';
-PRINT '  Constraints: FK (13), CHECK (14), INDEX (22)';
+PRINT '          VoucherRedemptions, VerificationCodes, PendingRegistrations,';
+PRINT '          PurchaseIdempotency, SchemaVersion';
+PRINT '  Constraints: FK (13), CHECK (26), INDEX (29)';
 PRINT '============================================================';
 GO
