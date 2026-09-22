@@ -1,0 +1,328 @@
+/* frontend/css/pro.css — BLANKUP PRO-POLISH LAYER (additive over style/tokens)
+   Scope: gradient type, gold CTA shine, elevated cards, glass nav, focus ring,
+   refined motion. Zero layout changes: only transform/opacity/gradient/shadow.
+   Everything respects prefers-reduced-motion and dark mode via tokens. */
+
+/* ============================================================
+   1. TOKENS (new surface vars, reused across all pages)
+   ============================================================ */
+:root {
+  --pro-grad-gold: linear-gradient(100deg, #a37c3a 0%, #d9b877 30%, #f0dfb6 50%, #d9b877 70%, #a37c3a 100%);
+  --pro-grad-ink: linear-gradient(160deg, #0f0c09 0%, #2a241c 100%);
+  --pro-grad-paper: linear-gradient(180deg, #fffdf8 0%, #f5f2eb 100%);
+  --pro-shine: linear-gradient(115deg, transparent 32%, rgba(255, 255, 255, 0.55) 50%, transparent 68%);
+  --pro-card-hover-lift: -4px;
+  --pro-shadow-sm: 0 1px 2px rgba(15, 12, 9, 0.05), 0 4px 14px rgba(15, 12, 9, 0.06);
+  --pro-shadow-md: 0 1px 0 rgba(15, 12, 9, 0.04), 0 12px 32px rgba(15, 12, 9, 0.09);
+  --pro-shadow-lg: 0 2px 0 rgba(15, 12, 9, 0.04), 0 24px 56px rgba(15, 12, 9, 0.14);
+  --pro-shadow-gold: 0 6px 22px rgba(163, 124, 58, 0.26), 0 2px 6px rgba(163, 124, 58, 0.16);
+}
+[data-theme="dark"] {
+  --pro-grad-paper: linear-gradient(180deg, #1d1b18 0%, #14110d 100%);
+  --pro-shine: linear-gradient(115deg, transparent 32%, rgba(245, 242, 235, 0.28) 50%, transparent 68%);
+  --pro-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 14px rgba(0, 0, 0, 0.35);
+  --pro-shadow-md: 0 1px 0 rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.42);
+  --pro-shadow-lg: 0 2px 0 rgba(0, 0, 0, 0.4), 0 24px 56px rgba(0, 0, 0, 0.5);
+  --pro-shadow-gold: 0 6px 22px rgba(213, 177, 120, 0.18), 0 2px 6px rgba(213, 177, 120, 0.12);
+}
+
+/* ============================================================
+   2. DISPLAY TEXT — no animated gradients (AI-design tell).
+      Base design's static .text-gradient / .accent already carry
+      the gold; we only refine weight/spacing.
+   ============================================================ */
+
+/* ============================================================
+   3. BUTTONS — real materials. Primary: solid brushed-gold bar
+      with ink text (reads instantly on the paper background).
+      Secondary: opaque porcelain with ink border — never blends
+      into the warm background. Hover = material response.
+   ============================================================ */
+.btn-primary,
+.nav-cta,
+.hero-btn-primary {
+  background: linear-gradient(180deg, #d9b06a 0%, #c19856 48%, #a87f42 100%);
+  color: #17120b;
+  border: 1px solid #8a6a38;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 214, 0.65),
+    inset 0 -1px 0 rgba(90, 62, 20, 0.28),
+    0 1px 3px rgba(31, 24, 12, 0.22);
+  transition: box-shadow 0.3s ease, filter 0.3s ease, transform 0.15s ease;
+}
+.btn-primary *, .nav-cta *, .hero-btn-primary * { color: inherit; }
+[data-theme="dark"] .btn-primary,
+[data-theme="dark"] .nav-cta,
+[data-theme="dark"] .hero-btn-primary {
+  background: linear-gradient(180deg, #e2ba76 0%, #cba061 48%, #b28848 100%);
+  color: #17120b;
+  border-color: #7c5f33;
+}
+.btn-primary:hover, .nav-cta:hover, .hero-btn-primary:hover {
+  filter: brightness(1.06);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 214, 0.7),
+    inset 0 -1px 0 rgba(90, 62, 20, 0.28),
+    0 6px 18px rgba(154, 112, 42, 0.35);
+}
+.btn-primary:active, .nav-cta:active, .hero-btn-primary:active {
+  transform: translateY(1px);
+  filter: brightness(0.98);
+}
+
+/* Keep loading/success/error states on top (color rule overrides gradient) */
+.btn-primary.is-loading, .generate-btn.is-loading { z-index: auto; }
+.btn-primary.is-success {
+  background: var(--success, #4a5a3f) !important;
+}
+.btn-primary.is-success::before, .btn-primary.is-success::after { display: none; }
+
+/* Secondary buttons: opaque porcelain chip with ink border —
+   must never blend into the warm paper background. Gold
+   underline grows on hover as the only accent. */
+.btn-secondary,
+.btn-ghost,
+.hero-btn-secondary {
+  position: relative;
+  overflow: hidden;
+  background: #fdfbf6;
+  border: 1px solid rgba(23, 18, 11, 0.55);
+  box-shadow: 0 1px 2px rgba(31, 24, 12, 0.08);
+  transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+[data-theme="dark"] .btn-secondary,
+[data-theme="dark"] .btn-ghost,
+[data-theme="dark"] .hero-btn-secondary {
+  background: rgba(20, 17, 13, 0.92);
+  border-color: rgba(224, 200, 150, 0.5);
+}
+.btn-secondary::after, .btn-ghost::after, .hero-btn-secondary::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 1px;
+  width: 100%;
+  background: var(--bk-gold, #c19856);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.45s var(--bk-ease-out, ease-out);
+}
+.btn-secondary:hover, .btn-ghost:hover, .hero-btn-secondary:hover {
+  border-color: rgba(23, 18, 11, 0.8);
+  box-shadow: 0 3px 10px rgba(31, 24, 12, 0.14);
+}
+.btn-secondary:hover::after, .btn-ghost:hover::after, .hero-btn-secondary:hover::after { transform: scaleX(1); }
+
+/* ============================================================
+   4. NAVBAR — deeper glass with gold hairline that appears on scroll
+   ============================================================ */
+.navbar,
+.home-page .nav {
+  backdrop-filter: blur(14px) saturate(1.25);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  transition: background 0.4s ease, box-shadow 0.4s ease, border-color 0.4s ease;
+}
+.home-page .nav.scrolled,
+body[data-scrolled="true"] .navbar {
+  box-shadow: var(--pro-shadow-sm);
+}
+.home-page .nav.scrolled::after,
+body[data-scrolled="true"] .navbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--pro-grad-gold);
+  opacity: 0.5;
+}
+
+/* ============================================================
+   5. CARDS — unified hover lift + border gold wash
+   ============================================================ */
+.product-card,
+.gallery-card,
+.pricing-card,
+.step-card,
+.ai-demo-card,
+.stat-card,
+.collection-card {
+  transition:
+    transform 0.5s var(--bk-ease-out, ease-out),
+    border-color 0.35s ease,
+    box-shadow 0.5s var(--bk-ease-out, ease-out);
+  will-change: auto;
+}
+.product-card:hover,
+.gallery-card:hover,
+.pricing-card:hover,
+.step-card:hover,
+.stat-card:hover,
+.collection-card:hover {
+  transform: translateY(var(--pro-card-hover-lift));
+  box-shadow: var(--pro-shadow-md);
+  border-color: rgba(193, 152, 86, 0.55);
+  z-index: 2;
+}
+.pricing-card { position: relative; }
+.pricing-card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: var(--pro-grad-gold);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+  pointer-events: none;
+}
+.pricing-card:hover::before { opacity: 1; }
+
+/* Step numbers: gold gradient fill on hover */
+.step-card .step-number {
+  transition: color 0.4s ease;
+}
+.step-card:hover .step-number { color: var(--bk-gold-deep, #a37c3a); }
+
+/* ============================================================
+   6. IMAGES — slow zoom inside frames on hover
+   ============================================================ */
+.product-image img,
+.gallery-card img,
+.collection-card img {
+  transition: transform 0.9s var(--bk-ease-out, ease-out);
+}
+.product-card:hover .product-image img,
+.gallery-card:hover img,
+.collection-card:hover img {
+  transform: scale(1.05);
+}
+
+/* ============================================================
+   7. REVEAL STAGGER — [data-stagger] parent delays children
+   ============================================================ */
+[data-stagger] > * {
+  transition-delay: calc(var(--pro-stagger-i, 0) * 90ms);
+}
+
+/* ============================================================
+   8. SCROLL PROGRESS BAR (top hairline, gold) — element injected by pro.js
+   ============================================================ */
+.pro-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  width: 100%;
+  z-index: 2300;
+  transform-origin: 0 50%;
+  transform: scaleX(0);
+  background: var(--pro-grad-gold);
+  pointer-events: none;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pro-progress { display: none; }
+}
+
+/* ============================================================
+   9. TILT — removed. 3D card tilt is an AI-portfolio tell.
+      Cards keep the quiet hover lift from section 5.
+   ============================================================ */
+
+/* ============================================================
+   10. LINK UNDERLINE REVEAL for nav (already exists in style.css;
+       add gold color on hover for .nav-link / .navbar-menu a)
+   ============================================================ */
+.nav-link:hover, .navbar-menu a:hover { color: var(--bk-ink, #0f0c09); }
+.nav-link::after, .navbar-menu a::after { background: var(--pro-grad-gold); }
+
+/* ============================================================
+   11. MODAL / DROPDOWN ENTRANCE (for .user-dropdown.show, dialogs)
+   ============================================================ */
+.user-dropdown.show {
+  animation: proPop 0.32s var(--bk-ease-out, ease-out);
+}
+@keyframes proPop {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ============================================================
+   12. FORM INPUTS — gold focus glow (upgrade of existing focus ring)
+   ============================================================ */
+input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--bk-gold, #c19856), 0 0 0 5px var(--bk-gold-soft, rgba(193, 152, 86, 0.14));
+  border-color: var(--bk-gold, #c19856);
+}
+input:focus:not(:focus-visible), textarea:focus:not(:focus-visible), select:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: 0 0 0 1px var(--bk-gold, #c19856), 0 0 0 5px var(--bk-gold-soft, rgba(193, 152, 86, 0.14));
+}
+
+/* ============================================================
+   13. SCROLLBAR — gold thumb hover
+   ============================================================ */
+*::-webkit-scrollbar-thumb:hover { background: var(--bk-gold, #c19856); }
+
+/* ============================================================
+   14. TOAST — slide from top with slight spring
+   ============================================================ */
+.toast {
+  border-radius: 6px !important;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+.toast--in { animation: proToastIn 0.4s var(--bk-ease-out, ease-out); }
+@keyframes proToastIn {
+  from { opacity: 0; transform: translateY(-14px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ============================================================
+   15. MARQUEE — soften with mask fade at edges
+   ============================================================ */
+.marquee-strip {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+/* ============================================================
+   16. FAQ disclosure — smooth open (grid-template-rows trick)
+   ============================================================ */
+details > *:not(summary) { min-width: 0; }
+details[open] > *:not(summary) {
+  animation: proDetailsIn 0.4s var(--bk-ease-out, ease-out);
+}
+@keyframes proDetailsIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   17. SELECTION & CARET — already in tokens; keep consistent
+   ============================================================ */
+
+/* ============================================================
+   18. HOVER LIFT UTILITY (opt-in)
+   ============================================================ */
+.pro-lift { transition: transform 0.5s var(--bk-ease-out, ease-out), box-shadow 0.5s var(--bk-ease-out, ease-out); }
+.pro-lift:hover { transform: translateY(-4px); box-shadow: var(--pro-shadow-md); }
+
+/* ============================================================
+   19. REDUCED MOTION — global kill switch for all pro animations
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}

@@ -1,0 +1,243 @@
+/* ============================================================
+   frontend/css/decor.css — HOMEPAGE DECOR LAYER
+   Reference language: dark cinematic print-atelier.
+   Real photography backgrounds (user-provided), ink-brown
+   stage, hard window-light sweep, mono micro-labels,
+   registration marks. All static. All calm.
+   ============================================================ */
+
+/* Hero background anchors decor children */
+.hero-bg { pointer-events: none; }
+
+/* ------------------------------------------------------------
+   0. HERO — flat-lay black tee + print motifs photograph
+      as the stage. Overlays keep text legible.
+   ------------------------------------------------------------ */
+.hero {
+  background: url('../assets/img/blankup-hero-flatlay.jpg') center 38% / cover no-repeat,
+    #171310 !important;
+}
+body.home-page .hero { color: #ece4d4; }
+
+/* legibility scrim — left column needs readable type over photo */
+.hero-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(90deg, rgba(16, 12, 8, 0.82) 0%, rgba(16, 12, 8, 0.55) 34%, rgba(16, 12, 8, 0.12) 62%, rgba(16, 12, 8, 0.25) 100%),
+    linear-gradient(180deg, rgba(16, 12, 8, 0.6) 0%, transparent 22%, transparent 70%, rgba(16, 12, 8, 0.66) 100%);
+}
+
+/* ------------------------------------------------------------
+   1. FILM GRAIN — static, warms the dark stage like film stock
+   ------------------------------------------------------------ */
+.decor-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.4;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+/* ------------------------------------------------------------
+   2. REGISTRATION MARKS (+) — print-shop signature, static
+   ------------------------------------------------------------ */
+.decor-grain { overflow: hidden; }
+.decor-grain::before,
+.decor-grain::after {
+  content: '+';
+  position: absolute;
+  font-family: 'DM Mono', monospace;
+  font-weight: 400;
+  font-size: 26px;
+  line-height: 1;
+  color: rgba(226, 180, 106, 0.4);
+}
+.decor-grain::before { top: 96px; right: 48px; }
+.decor-grain::after { bottom: 64px; left: 44px; }
+
+/* ------------------------------------------------------------
+   3. HERO TYPE — mono micro-labels, wide tracking (print style)
+   ------------------------------------------------------------ */
+.hero .hero-badge {
+  font-family: 'DM Mono', monospace;
+  letter-spacing: 0.32em;
+  color: #d9b06a;
+}
+.hero .hero-title-sub {
+  font-family: 'DM Mono', monospace;
+  letter-spacing: 0.34em;
+  color: rgba(236, 228, 212, 0.55);
+}
+.hero .hero-title {
+  color: #f4ecd9;
+  text-shadow: 0 2px 40px rgba(0, 0, 0, 0.45);
+}
+.hero .hero-title-gradient { color: #d9b06a; }
+.hero .hero-subtitle { color: rgba(236, 228, 212, 0.72); }
+
+/* secondary buttons on dark: dark glass with warm border */
+.hero .hero-btn-secondary {
+  background: rgba(24, 19, 14, 0.6);
+  border-color: rgba(226, 180, 106, 0.45);
+  color: #ecd9ac;
+  box-shadow: none;
+}
+.hero .hero-btn-secondary:hover {
+  border-color: rgba(226, 180, 106, 0.8);
+  box-shadow: 0 3px 14px rgba(0, 0, 0, 0.4);
+}
+.hero .hero-btn-secondary:hover::after { transform: scaleX(1); }
+
+/* live prompt chip on dark */
+.hero .live-prompt {
+  background: rgba(20, 16, 12, 0.55);
+  border-color: rgba(226, 180, 106, 0.28);
+}
+.hero .live-prompt-label { color: #d9b06a; }
+.hero .live-prompt-text { color: rgba(236, 228, 212, 0.85); }
+
+/* trust row on dark */
+.hero .hero-trust-text { color: rgba(236, 228, 212, 0.6); }
+
+/* ------------------------------------------------------------
+   4. NAV — dark glass over the dark hero, light-on-scroll is
+      kept via existing transition (scrolled adds shadow only)
+   ------------------------------------------------------------ */
+body.home-page .nav,
+body.home-page .nav.scrolled {
+  background: rgba(19, 15, 11, 0.78);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  backdrop-filter: blur(14px) saturate(1.2);
+  border-bottom-color: rgba(226, 180, 106, 0.16);
+}
+body.home-page .nav-link,
+body.home-page .nav-logo { color: #ece4d4; }
+body.home-page .nav-link:hover { color: #e6c98a; }
+body.home-page .nav-logo-accent { color: #d9b06a; }
+
+/* ------------------------------------------------------------
+   5. PRODUCT STAGE — card sits in the light pool; foil frame
+   ------------------------------------------------------------ */
+.hero-canvas-glow {
+  display: block;
+  position: absolute;
+  inset: -14%;
+  pointer-events: none;
+  background: radial-gradient(
+    44% 44% at 50% 44%,
+    rgba(226, 180, 106, 0.2),
+    rgba(226, 180, 106, 0.05) 55%,
+    transparent 75%
+  );
+}
+.hero-canvas-area::before {
+  content: '';
+  position: absolute;
+  inset: -26px;
+  pointer-events: none;
+  border: 1px solid rgba(198, 150, 74, 0.4);
+  border-radius: 26px;
+}
+.hero-canvas-area::after {
+  content: '';
+  position: absolute;
+  inset: -34px;
+  pointer-events: none;
+  border: 1px solid rgba(198, 150, 74, 0.18);
+  border-radius: 32px;
+}
+
+/* ------------------------------------------------------------
+   6. EDITORIAL WATERMARK — outline serif, now pale on dark
+   ------------------------------------------------------------ */
+.decor-watermark {
+  position: absolute;
+  left: 50%;
+  bottom: -0.18em;
+  transform: translateX(-50%);
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 700;
+  font-size: clamp(90px, 16vw, 230px);
+  letter-spacing: 0.05em;
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(236, 228, 212, 0.06);
+  pointer-events: none;
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* ------------------------------------------------------------
+   7. SECTION PHOTOGRAPHY — the remaining atelier photos take
+      one dark panel each, forming the dark–light–dark rhythm:
+      hero(dark/photo) → content(light) → how(dark/screen-print)
+      → collections(dark/photo-cards) → reviews(dark/closeup)
+      → cta(dark/make-it-yours)
+   ------------------------------------------------------------ */
+.how {
+  background:
+    linear-gradient(90deg, rgba(14, 11, 8, 0.93) 0%, rgba(14, 11, 8, 0.88) 55%, rgba(14, 11, 8, 0.8) 100%),
+    url('../assets/img/blankup-screen-print.jpg') center 30% / cover no-repeat,
+    #0e0b08 !important;
+}
+.how .section-title-em, .how .section-badge { color: #e6c98a; }
+.how .section-subtitle { color: rgba(236, 228, 212, 0.66); }
+.how .how-step { border-top-color: rgba(226, 180, 106, 0.28); }
+.how .how-step h3 { color: #f4ecd9; }
+.how .how-step p { color: rgba(236, 228, 212, 0.62); }
+.how .how-step-number {
+  font-family: 'DM Mono', monospace;
+  color: #d9b06a;
+  opacity: 0.9;
+}
+.how .how-step-icon { color: #d9b06a; }
+.how .how-step-connector { border-top-color: rgba(226, 180, 106, 0.3); }
+
+.collections {
+  background:
+    linear-gradient(180deg, rgba(14, 11, 8, 0.96) 0%, rgba(20, 15, 10, 0.9) 100%),
+    url('../assets/img/blankup-rack.jpg') center / cover no-repeat,
+    #0e0b08 !important;
+}
+.collections .section-title-em, .collections .section-badge { color: #e6c98a; }
+.collections .section-subtitle { color: rgba(236, 228, 212, 0.66); }
+
+.reviews {
+  background:
+    linear-gradient(180deg, rgba(14, 11, 8, 0.9) 0%, rgba(14, 11, 8, 0.94) 100%),
+    url('../assets/img/blankup-tshirt-closeup.jpg') center / cover no-repeat,
+    #0e0b08 !important;
+}
+.reviews .section-title-em, .reviews .section-badge { color: #e6c98a; }
+.reviews .section-subtitle { color: rgba(236, 228, 212, 0.66); }
+.reviews .review-card {
+  background: rgba(22, 17, 12, 0.72);
+  border-color: rgba(226, 180, 106, 0.2);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.reviews .review-card p { color: rgba(236, 228, 212, 0.82); }
+
+.cta-section {
+  background:
+    linear-gradient(90deg, rgba(13, 10, 7, 0.6) 0%, rgba(13, 10, 7, 0.35) 45%, rgba(13, 10, 7, 0.7) 100%),
+    url('../assets/img/blankup-make-it-yours.min.png') center / cover no-repeat,
+    #0d0a07 !important;
+}
+.cta-section .cta-title { color: #f4ecd9; }
+.cta-section .cta-badge {
+  font-family: 'DM Mono', monospace;
+  letter-spacing: 0.3em;
+  color: #e6c98a;
+}
+.cta-section .cta-subtitle { color: rgba(236, 228, 212, 0.75); }
+.cta-section .cta-trust-item { color: rgba(236, 228, 212, 0.7); }
+
+/* ------------------------------------------------------------
+   Reduced motion — nothing here animates, nothing to disable.
+   ------------------------------------------------------------ */
