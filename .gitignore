@@ -25,3 +25,4 @@ frontend/assets/models/tshirt-optimized.glb
 .agents/
 .opencode/
 skills-lock.json
+.freebuff/
