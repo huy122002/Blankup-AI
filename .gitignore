@@ -1,5 +1,6 @@
 # Dependencies and local secrets
 backend/node_modules/
+node_modules/
 backend/.env
 
 # Test coverage
