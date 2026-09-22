@@ -63,14 +63,14 @@ function createTestImage() {
   return Buffer.from(pngBase64, 'base64');
 }
 
+// Perf fix (pre-existing O(n^2) Buffer.concat loop): single allocation with
+// the PNG bytes at the front. Same semantics: valid PNG magic + sizeMB size.
 function createLargeTestImage(sizeMB) {
   const base = createTestImage();
-  const chunks = [];
   const targetBytes = sizeMB * 1024 * 1024;
-  while (Buffer.concat(chunks).length < targetBytes) {
-    chunks.push(base);
-  }
-  return Buffer.concat(chunks).slice(0, targetBytes);
+  const out = Buffer.alloc(targetBytes);
+  base.copy(out, 0);
+  return out;
 }
 
 function createFakeExecutable() {

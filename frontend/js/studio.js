@@ -129,6 +129,10 @@ const state = {
   activePlacementLayer: 'image',
   isGeneratingAi: false,
   customTextSides: { front: '', back: '' },
+  // Per-side AI prompts — "mặt trước/mặt sau có prompt riêng".
+  // promptInput mirrors the CURRENT side's prompt; switching sides swaps text.
+  sidePrompts: { front: '', back: '' },
+  promptSide: 'front',
   designProcessVersion: 0,
   viewer3d: null,
   cssViewer: null,
@@ -217,7 +221,7 @@ function updateBackDesignControls() {
   if (clear) clear.style.display = has ? '' : 'none';
 }
 function initBackDesignControls() {
-  document.getElementById('backGenerateBtn')?.addEventListener('click', () => generateFromPrompt('back'));
+  document.getElementById('backGenerateBtn')?.addEventListener('click', () => { switchPromptSide('back'); generateFromPrompt('back'); });
   document.getElementById('backClearBtn')?.addEventListener('click', () => {
     clearSideLayers('back');
     state.preparedDesignUrls.back = null;
@@ -620,13 +624,65 @@ function renderLayersOverlay() {
     const style = `left:0;top:0;width:46%;max-width:320px;transform:translate(calc(-50% + ${l.x}%), calc(-50% + ${l.y}%)) scale(${l.scale}) rotate(${l.rotation || 0}deg);z-index:${10 + l.z};cursor:pointer;${isSel ? 'outline:2px dashed var(--s-accent, #ff6b00);outline-offset:3px;' : ''}`;
     return `<img src="${escapeAttr(l.url)}" alt="${escapeAttr(l.name || 'Design')}" class="mockup-print-design" data-layer-id="${escapeAttr(l.id)}" draggable="false" style="${style}">`;
   }).join('') + (activeText ? `<div class="mockup-print-text">${escapeHtml(activeText)}</div>` : '');
-  // Click-to-select a specific layer (controls then affect ONLY it).
+  // Click-to-select + DIRECT DRAG-TO-MOVE on the layer itself.
+  // Pixels→percent: layer x/y are % of overlay box; overlay center is (0,0).
   overlay.querySelectorAll('img[data-layer-id]').forEach(img => {
-    img.addEventListener('click', (e) => {
+    img.style.pointerEvents = 'auto';
+    img.addEventListener('pointerdown', (e) => {
       e.stopPropagation();
-      selectLayer(side, img.dataset.layerId);
-      showToast(`Đang chỉnh: ${getSelectedLayer(side)?.name || ''}`, 'info', 1500);
-      refreshSideViews();
+      e.preventDefault();
+      const layer = sideLayers(side).find(l => l.id === img.dataset.layerId);
+      if (!layer) return;
+      // Đo rect TRƯỚC khi selectLayer (nó re-render overlay và thay thế node img
+      // → rect trên node detached sẽ là 0x0).
+      const layerBox = img.getBoundingClientRect();
+      const overlayBox = overlay.getBoundingClientRect();
+      selectLayer(side, layer.id);
+      const startX = e.clientX, startY = e.clientY;
+      const origX = layer.x, origY = layer.y, origRot = layer.rotation || 0;
+      // CSS translate(%) tính theo KÍCH THƯỚC CHÍNH ẢNH LAYER (không phải
+      // overlay — overlay là container absolute rỗng, width có thể = 0).
+      // Fallback: overlay box, cuối cùng là 1 để tránh chia 0.
+      const refW = Math.max(1, layerBox.width || overlayBox.width || 1);
+      const refH = Math.max(1, layerBox.height || overlayBox.height || 1);
+      const ppx = 100 / refW;
+      const ppy = 100 / refH;
+      let moved = false;
+      const onMove = (ev) => {
+        const dx = (ev.clientX - startX) * ppx;
+        const dy = (ev.clientY - startY) * ppy;
+        if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 3) return;
+        moved = true;
+        if (state.interactionMode === 'rotate') {
+          // Rotate mode: drag spins the layer around its center (delta angle
+          // from drag start, applied to the ORIGINAL rotation — no drift).
+          const cx = overlayBox.left + overlayBox.width / 2;
+          const cy = overlayBox.top + overlayBox.height / 2;
+          const ang = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
+          const ang0 = Math.atan2(startY - cy, startX - cx) * 180 / Math.PI;
+          layer.rotation = clampNum(Math.round(origRot + (ang - ang0)), ...LAYER_BOUNDS.rotation);
+        } else {
+          layer.x = clampNum(origX + dx, ...LAYER_BOUNDS.x);
+          layer.y = clampNum(origY + dy, ...LAYER_BOUNDS.y);
+        }
+        commitActivePlacements();
+        syncPlacementInputs();
+        renderLayersOverlay();
+        scheduleViewerUpdate();
+      };
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        window.removeEventListener('pointercancel', onUp);
+        if (moved) {
+          showToast(`Đã di chuyển: ${layer.name || 'mẫu'} (x:${Math.round(layer.x)} y:${Math.round(layer.y)}${state.interactionMode === 'rotate' ? ` · ${Math.round(layer.rotation)}°` : ''})`, 'info', 1600);
+        } else {
+          showToast(`Đang chỉnh: ${layer.name || ''}`, 'info', 1500);
+        }
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+      window.addEventListener('pointercancel', onUp);
     });
   });
   updateOverlayPlacement();
@@ -727,14 +783,19 @@ function updateThreeTexture() {
 }
 
 async function applyCurrentDesignToViewer() {
-  // The side composite (all visible layers + text) is the single image the
-  // 3D decal shows — 2D and 3D always agree. The viewer skips recompute when
-  // the composite URL is unchanged, so color/product/rotate updates stay
-  // instant and only real composition changes re-run decal clipping.
+  // The side composites (all visible layers + text per side) are the images
+  // the 3D decals show — 2D and 3D always agree. Front và BACK là 2 decal
+  // độc lập; mặt không có thiết kế truyền null (không in).
   const vd = await getCompositeDesignsForViewer();
   const activeComposite = state.currentView === 'back' ? (vd.back || vd.front) : (vd.front || vd.back);
   state.printDesignUrl = activeComposite || '';
-  try { window.tshirt360Viewer?.setDesign?.(activeComposite || null); } catch (e) { /* */ }
+  try {
+    if (window.tshirt360Viewer?.setDesigns) {
+      window.tshirt360Viewer.setDesigns({ front: vd.front || null, back: vd.back || null });
+    } else {
+      window.tshirt360Viewer?.setDesign?.(activeComposite || null);
+    }
+  } catch (e) { /* */ }
   updateOverlayPlacement();
 }
 
@@ -1062,6 +1123,104 @@ function announceFreshResult() {
       window.setTimeout(() => actions.classList.remove('actions-fresh'), 900);
     }
   } catch { /* choreography must never break functionality */ }
+}
+
+/* ============================================================
+   PROMPT PER-SIDE — front/back là 2 prompt độc lập.
+   promptInput luôn mirror sidePrompts[promptSide]; switching side
+   lưu text hiện tại rồi nạp text của side mới.
+   ============================================================ */
+function currentPromptSide() { return state.promptSide === 'back' ? 'back' : 'front'; }
+
+// Swap textarea content between side prompts (single source of the swap logic).
+function switchPromptSide(side) {
+  const next = side === 'back' ? 'back' : 'front';
+  const cur = currentPromptSide();
+  if (next === cur) return;
+  const input = document.getElementById('promptInput');
+  if (input) {
+    state.sidePrompts[cur] = input.value;
+    // Cập nhật state.promptSide TRƯỚC khi dispatch 'input' — nếu không,
+    // listener mirror sẽ ghi text mới vào side CŨ và xoá prompt của nó.
+    state.promptSide = next;
+    input.value = state.sidePrompts[next] || '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  } else {
+    state.promptSide = next;
+  }
+  document.querySelectorAll('.prompt-side-btn').forEach(btn => {
+    const on = btn.dataset.side === next;
+    btn.classList.toggle('active', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  updatePromptCount();
+}
+
+/* ============================================================
+   SPLIT PROMPT — prompt tổng nhắc cả 2 mặt.
+   "con chó mặt trước, con mèo mặt sau" → { front: 'con chó', back: 'con mèo' }.
+   Phân đoạn bằng dấu phẩy/xa hàng dòng; mỗi segment nhận diện mặt bằng từ
+   khóa 'mặt trước/front', 'mặt sau/back'. Segment không nhắc mặt → null
+   (áp dụng cho mặt đang soạn, không tự đoán). Trả về null nếu prompt
+   KHÔNG phải dạng 2-mặt (không đổi hành vi hiện tại).
+   ============================================================ */
+function splitDualSidePrompt(rawPrompt) {
+  const text = String(rawPrompt || '').trim();
+  if (!text) return null;
+  const FRONT_RE = /(?:mặt\s*trước|mat\s*truoc|front(?:\s*side)?)/i;
+  const BACK_RE = /(?:mặt\s*sau|mat\s*sau|back(?:\s*side)?)/i;
+  const segments = text.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+  if (segments.length < 2) return null;
+  // Từ thừa sau khi bỏ keyword mặt: "mặt trước áo" → bỏ nốt "áo".
+  const stripGarment = s => s.replace(/^(?:trên\s*|của\s*)?(?:áo\s*|ao\s*|shirt\s*|t-?shirt\s*)?/i, '').replace(/\s*(?:áo|ao)$/i, '').replace(/^[\s:：-]+/, '').trim();
+  const frontSegs = [];
+  const backSegs = [];
+  let untagged = [];
+  for (const seg of segments) {
+    const isF = FRONT_RE.test(seg);
+    const isB = BACK_RE.test(seg);
+    if (isF && !isB) frontSegs.push(stripGarment(seg.replace(FRONT_RE, '')));
+    else if (isB && !isF) backSegs.push(stripGarment(seg.replace(BACK_RE, '')));
+    else untagged.push(seg);
+  }
+  // Chỉ coi là prompt 2-mặt khi CẢ front VÀ back được nhắc tường minh.
+  if (!frontSegs.length || !backSegs.length) return null;
+  // Segment không nhắc mặt (vd câu mô tả chung) → ghép vào cả hai.
+  const joinSegs = arr => arr.filter(Boolean).join(', ').trim();
+  const extra = untagged.filter(Boolean);
+  const front = joinSegs([...frontSegs, ...extra]);
+  const back = joinSegs([...backSegs, ...extra]);
+  if (!front || !back) return null;
+  return { front, back };
+}
+
+function updatePromptCount() {
+  const count = document.getElementById('promptCount');
+  const input = document.getElementById('promptInput');  
+  if (count && input) count.textContent = `${input.value.length} / ${HARDEN_LIMITS.promptMax}`;
+}
+
+function initPromptSideSwitch() {
+  document.querySelectorAll('.prompt-side-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const side = btn.dataset.side === 'back' ? 'back' : 'front';
+      if (side === currentPromptSide()) return;
+      switchPromptSide(side);
+      // Soạn prompt cho mặt nào → khung nhìn áo chuyển sang mặt đó.
+      setViewerSide(side);
+      showToast(`Đang soạn prompt cho ${side === 'back' ? 'MẶT SAU' : 'MẶT TRƯỚC'}.`, 'info', 1800);
+      const pi = document.getElementById('promptInput');
+      if (pi) { pi.focus(); }
+    });
+  });
+  // Mirror typing → sidePrompts (realtime) và đếm ký tự (gap cũ: promptCount không update).
+  const input = document.getElementById('promptInput');
+  if (input) {
+    input.addEventListener('input', () => {
+      state.sidePrompts[currentPromptSide()] = input.value;
+      updatePromptCount();
+    });
+  }
 }
 
 /* ============================================================
@@ -1635,7 +1794,7 @@ function initGenerateButtons() {
   document.getElementById('promptEnhanceBtn')?.addEventListener('click', enhancePrompt);
 }
 
-async function generateFromPrompt(targetSide = 'front') {
+async function generateFromPrompt(targetSide = 'front', opts = {}) {
   if (requireAuth()) return;
   if (state.isGeneratingAi) { showToast('AI đang tạo mẫu trước đó — vui lòng đợi hoàn tất.', 'info'); return; }
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
@@ -1650,13 +1809,33 @@ async function generateFromPrompt(targetSide = 'front') {
   if (prompt.length < HARDEN_LIMITS.promptMin) { if(_genBtnEarly) shakeButton(_genBtnEarly); setFieldError(inputEl, errEl, `Mô tả quá ngắn (${prompt.length}/${HARDEN_LIMITS.promptMin} ký tự tối thiểu).`); return; }
   if (prompt.length > HARDEN_LIMITS.promptMax) { if(_genBtnEarly) shakeButton(_genBtnEarly); setFieldError(inputEl, errEl, `Mô tả quá dài (${prompt.length}/${HARDEN_LIMITS.promptMax}). Hãy rút gọn.`); showToast(`Prompt vượt quá ${HARDEN_LIMITS.promptMax} ký tự.`, 'warning'); return; }
   setFieldError(inputEl, errEl, '');
+  // Prompt tổng 2 mặt ("con chó mặt trước, con mèo mặt sau") → tự tách và
+  // tạo TỪNG mặt lần lượt. Chỉ chạy ở lượt gọi từ nút bấm (không re-entry).
+  if (!opts.promptOverride && !opts.skipSplit) {
+    const dual = splitDualSidePrompt(prompt);
+    if (dual) {
+      state.sidePrompts.front = dual.front;
+      state.sidePrompts.back = dual.back;
+      const pi = document.getElementById('promptInput');
+      if (pi) { pi.value = dual[currentPromptSide()] || ''; pi.dispatchEvent(new Event('input', { bubbles: true })); }
+      showToast('Nhận diện prompt cho cả 2 mặt — sẽ tạo MẶT TRƯỚC rồi MẶT SAU lần lượt.', 'info', 4000);
+      await generateFromPrompt('front', { promptOverride: dual.front, skipSplit: true });
+      await generateFromPrompt('back', { promptOverride: dual.back, skipSplit: true });
+      return;
+    }
+  }
   const btn = document.getElementById('generatePromptBtn');
-  const isBack = targetSide === 'back';
+  // Per-side prompts: target side defaults to the side the user is composing
+  // for in the prompt panel (promptSide), not always 'front'.
+  const target = targetSide === 'back' ? 'back' : currentPromptSide();
+  const activePrompt = opts.promptOverride || prompt;
+  state.sidePrompts[target] = activePrompt;
+  const isBack = target === 'back';
   updateActionButtons(false);
   setLoading(btn, true);
   startGenProgress();
 
-  const draft = generateMockDesign(state.selectedStyle, prompt);
+  const draft = generateMockDesign(state.selectedStyle, activePrompt);
   draft.isDraft = true;
   // The draft is a real layer marked draft; the AI result REPLACES this same
   // layer on success (no duplicate) or stays visible on failure.
@@ -1664,12 +1843,12 @@ async function generateFromPrompt(targetSide = 'front') {
   if (isBack) {
     if (!state.currentDesign) state.currentDesign = draft;
     state.currentDesign.backDesignUrl = draft.designUrl;
-    const created = await showDesignOnMockup(draft.designUrl, null, null, 'back', { name: 'Đang tạo (sau)…', designId: draft.designId, prompt, style: state.selectedStyle });
+    const created = await showDesignOnMockup(draft.designUrl, null, null, 'back', { name: 'Đang tạo (sau)…', designId: draft.designId, prompt: activePrompt, style: state.selectedStyle });
     if (created) { created.isDraft = true; draftLayerId = created.id; }
   } else {
     state.currentDesign = draft;
     state.isGeneratingAi = true;
-    const created = await showDesignOnMockup(draft.designUrl, null, null, undefined, { name: 'Đang tạo…', designId: draft.designId, prompt, style: state.selectedStyle });
+    const created = await showDesignOnMockup(draft.designUrl, null, null, undefined, { name: 'Đang tạo…', designId: draft.designId, prompt: activePrompt, style: state.selectedStyle });
     if (created) { created.isDraft = true; draftLayerId = created.id; }
   }
 
@@ -1679,7 +1858,7 @@ async function generateFromPrompt(targetSide = 'front') {
     const resp = await fetch(`${API_BASE}/ai-design/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: auth.token ? `Bearer ${auth.token}` : '' },
-      body: JSON.stringify({ prompt, style: state.selectedStyle, customText: state.customText, author: auth.user?.fullName || auth.user?.username || '' }),
+      body: JSON.stringify({ prompt: activePrompt, style: state.selectedStyle, customText: state.customText, author: auth.user?.fullName || auth.user?.username || '' }),
       signal: genController.signal,
     });
     clearTimeout(genTimeout);
@@ -1719,22 +1898,31 @@ async function generateFromPrompt(targetSide = 'front') {
         saveToHistory(data);
       }
       showToast(`Đã thêm mẫu mới vào mặt ${isBack ? 'sau' : 'trước'}.`, 'success');
+      if (data.provider === 'mock') {
+        showToast('⚠ Lưu ý: Hệ thống AI hiện không khả dụng — đây là ảnh DEMO (mẫu có sẵn), KHÔNG theo prompt của bạn. Credit đã được hoàn lại.', 'warning', 10000);
+      }
     } else {
       failGenProgress();
     }
   } catch (e) {
     clearTimeout(genTimeout);
     state.isGeneratingAi = false;
+    // Gén lỗi → gỡ draft "Đang tạo…" ra khỏi áo (nếu chưa bị thay).
+    // Trước đây draft bị kẹt lại mãi khi gen thất bại (vd hết credit).
+    const draftLayerFail = draftLayerId ? sideLayers(isBack ? 'back' : 'front').find(l => l.id === draftLayerId && l.isDraft) : null;
+    if (draftLayerFail) removeLayer(isBack ? 'back' : 'front', draftLayerId);
     if (e && e.name === 'AbortError') {
       failGenProgress('Quá thời gian chờ AI (120s). Vui lòng thử lại.');
       shakeButton(btn);
       showToast('AI phản hồi quá lâu (quá 120s). Yêu cầu có thể vẫn đang xử lý ở server — vui lòng đợi một lúc rồi kiểm tra lại, tránh bấm tạo liên tục.', 'error', 7000);
+      refreshSideViews();
       setLoading(btn, false); return;
     }
     failGenProgress();
     if (e.message && e.message !== 'Failed to fetch') {
       shakeButton(btn);
       showToast(e.message, 'error', 7000);
+      refreshSideViews();
       setLoading(btn, false); return;
     }
     console.warn('API unavailable, keeping draft');
@@ -1801,7 +1989,11 @@ async function generateFromImage() {
       updateShareButton();
       saveToHistory(data);
       showButtonSuccess(btn, '✓ Đã tạo');
-      showToast('Đã thêm mẫu mới vào mặt trước.', 'success');
+      if (data.provider === 'mock') {
+        showToast('⚠ Lưu ý: Hệ thống AI hiện không khả dụng — đây là ảnh DEMO (mẫu có sẵn), KHÔNG theo prompt của bạn. Credit đã được hoàn lại.', 'warning', 10000);
+      } else {
+        showToast('Đã thêm mẫu mới vào mặt trước.', 'success');
+      }
     } else {
       shakeButton(btn);
       failGenProgress();
@@ -1853,6 +2045,23 @@ function setViewerSide(side) {
   commitActivePlacements();
   state.currentView = next;
   loadPlacementsForSide(next);
+  // Prompt panel follows the viewed side (two-way sync with prompt-side switch).
+  if (state.promptSide !== next) {
+    const pi = document.getElementById('promptInput');
+    if (pi) {
+      state.sidePrompts[state.promptSide] = pi.value;
+      state.promptSide = next;
+      pi.value = state.sidePrompts[next] || '';
+      pi.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    state.promptSide = next;
+    document.querySelectorAll('.prompt-side-btn').forEach(btn => {
+      const on = btn.dataset.side === next;
+      btn.classList.toggle('active', on);
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    updatePromptCount();
+  }
   document.querySelectorAll('.view-toggle-btn').forEach(btn => {
     const on = btn.dataset.view === next;
     btn.classList.toggle('active', on);
@@ -2223,6 +2432,61 @@ function hasLayerDesigns(side) {
 /* ============================================================
    3D VIEWER
    ============================================================ */
+/* Kéo layer TRỰC TIẾP trên khung 3D (chế độ Vị trí).
+   Design hiển thị qua 3D decal dựng từ composite các layer, nên drag ở đây
+   cập nhật layer.x/y → rebuild composite (debounced) → decal 3D chạy theo.
+   Cùng pipeline với slider vị trí: commitActivePlacements + syncPlacementInputs
+   + renderLayersOverlay + scheduleViewerUpdate. */
+function initCanvasLayerDrag() {
+  const container = document.getElementById('canvasViewer');
+  if (!container) return;
+  let dragging = false, lastX = 0, lastY = 0, layer = null;
+  container.addEventListener('pointerdown', (e) => {
+    if (state.interactionMode !== 'position') return; // rotate mode: tilt áo
+    if (e.button !== undefined && e.button !== 0) return;
+    if (state.activePlacementLayer === 'text' && getSideCustomText()) {
+      layer = null; // kéo chữ (textPlacement) thay vì layer ảnh
+    } else {
+      layer = getSelectedLayer();
+      if (!layer) {
+        const top = [...sideLayers(state.currentView)].filter(l => l.visible !== false && l.url).sort((a, b) => b.z - a.z)[0];
+        if (!top) return;
+        selectLayer(state.currentView, top.id);
+        layer = top;
+        showToast(`Đang kéo: ${top.name || 'mẫu'} — đổi mẫu cần kéo trong danh sách lớp.`, 'info', 2200);
+      }
+    }
+    dragging = true;
+    lastX = e.clientX; lastY = e.clientY;
+    try { container.setPointerCapture(e.pointerId); } catch (err) { /* */ }
+    e.preventDefault();
+  });
+  container.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const w = container.clientWidth || 1;
+    // Hiệu chuẩn: decal ≈ 42% rộng áo, áo ≈ 70% rộng khung → 1% composite ≈ 0.3w px
+    const k = 100 / (0.3 * w);
+    const dx = (e.clientX - lastX) * k;
+    const dy = (e.clientY - lastY) * k;
+    lastX = e.clientX; lastY = e.clientY;
+    if (state.activePlacementLayer === 'text' && !layer) {
+      const tp = state.textPlacement;
+      tp.x = clampNum(tp.x + dx, -80, 80);
+      tp.y = clampNum(tp.y + dy, -75, 45);
+    } else if (layer) {
+      layer.x = clampNum(layer.x + dx, ...LAYER_BOUNDS.x);
+      layer.y = clampNum(layer.y + dy, ...LAYER_BOUNDS.y);
+    } else { return; }
+    commitActivePlacements();
+    syncPlacementInputs();
+    renderLayersOverlay();
+    scheduleViewerUpdate();
+  });
+  const stop = () => { dragging = false; layer = null; };
+  container.addEventListener('pointerup', stop);
+  container.addEventListener('pointercancel', stop);
+}
+
 function initThreeViewer() {
   // Wait for tshirt-360.js module to load
   const check = setInterval(() => {
@@ -2910,6 +3174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }, true);
   initTabs();
+  initPromptSideSwitch();
   initStyleSelector();
   initUpload();
   initPromptSuggestions();
@@ -2923,6 +3188,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initPrintPreview();
   initBackDesignControls();
   initInteractionMode();
+  initCanvasLayerDrag();
   initOrderFlow();
   initDownload();
   initShareDesign();

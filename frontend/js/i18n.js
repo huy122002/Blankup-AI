@@ -149,6 +149,8 @@ const translations = {
     'order.phoneInvalid': 'Số điện thoại không hợp lệ. Vui lòng nhập số điện thoại Việt Nam (VD: 0912345678).',
     'studio.front': 'Trước',
     'studio.back': 'Sau',
+    'studio.side.front': 'Mặt trước',
+    'studio.side.back': 'Mặt sau',
     'studio.recent.title': 'Thiết kế cộng đồng',
     'studio.recent.subtitle': 'Lấy cảm hứng từ các thiết kế của cộng đồng Blankup',
 
@@ -774,6 +776,8 @@ const translations = {
     'order.phoneInvalid': 'Invalid phone number. Please enter a valid Vietnamese phone number (e.g. 0912345678).',
     'studio.front': 'Front',
     'studio.back': 'Back',
+    'studio.side.front': 'Front side',
+    'studio.side.back': 'Back side',
     'studio.recent.title': 'Community Designs',
     'studio.recent.subtitle': 'Get inspired by designs from the Blankup community',
 

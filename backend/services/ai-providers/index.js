@@ -5,6 +5,7 @@ const { getConfig, getFallbackOrder, isProviderAvailable } = require('./provider
 const { CloudflareProvider } = require('./cloudflare.provider');
 const { OpenAIProvider } = require('./openai.provider');
 const { OmniRouteProvider } = require('./omniroute.provider');
+const { GeminiProvider } = require('./gemini.provider');
 const { AIProviderError } = require('./base.provider');
 
 function createProviders(cfg) {
@@ -13,6 +14,7 @@ function createProviders(cfg) {
     omniroute: new OmniRouteProvider(c),
     openai: new OpenAIProvider(c),
     cloudflare: new CloudflareProvider(c),
+    'google-gemini': new GeminiProvider(c),
   };
 }
 
@@ -25,7 +27,12 @@ function getProviderInstance(name, cfg) {
 async function generateWithFallback({ prompt, style, designId, file, idea, enhancedPrompt, finalPrompt, finalProductPrompt, isFromImage = false, requestId }) {
   const cfg = getConfig();
   const primary = (cfg.aiProvider || 'auto').toLowerCase();
-  const fallbackOrder = getFallbackOrder(primary === 'auto' ? null : primary, cfg);
+  // Strict mode (AI_PROVIDER_STRICT=true): only the explicitly selected provider
+  // is used — no fallback. Used for provider-specific verification so a PASS
+  // cannot silently come from another provider. Production behavior unchanged.
+  const fallbackOrder = cfg.strictProvider
+    ? [primary]
+    : getFallbackOrder(primary === 'auto' ? null : primary, cfg);
   // If AI_PROVIDER is explicit and available, order already starts with it. If auto, order is priority list.
 
   // Also support direct selection: if AI_PROVIDER is explicit, we treat fallbackOrder as [primary, ...others]
@@ -52,6 +59,7 @@ async function generateWithFallback({ prompt, style, designId, file, idea, enhan
       if (providerName === 'omniroute') return cfg.omniroute.maxRetries;
       if (providerName === 'openai') return cfg.openai.maxRetries;
       if (providerName === 'cloudflare') return cfg.cloudflare.maxRetries;
+      if (providerName === 'google-gemini') return cfg.gemini.maxRetries;
       return 0;
     })();
     const retries = Math.max(0, maxR);

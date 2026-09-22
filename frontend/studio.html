@@ -83,6 +83,16 @@
             <h3>Mô tả thiết kế</h3>
           </div>
           <div class="panel-section-body">
+            <div class="prompt-side-switch" id="promptSideSwitch" role="group" aria-label="Mặt áp dụng prompt">
+              <button class="prompt-side-btn active" data-side="front" type="button" aria-pressed="true">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+                <span data-i18n="studio.side.front">Mặt trước</span>
+              </button>
+              <button class="prompt-side-btn" data-side="back" type="button" aria-pressed="false">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="12" x2="21" y2="12"/></svg>
+                <span data-i18n="studio.side.back">Mặt sau</span>
+              </button>
+            </div>
             <div class="prompt-area">
               <textarea class="prompt-input" id="promptInput" rows="4" maxlength="2000"
                 aria-describedby="promptHint promptCount promptError"

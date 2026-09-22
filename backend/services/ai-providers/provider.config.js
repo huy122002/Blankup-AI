@@ -81,7 +81,26 @@ function getConfig() {
     cloudflare.enabled = boolEnv('CLOUDFLARE_ENABLED', false);
   }
 
-  return { aiProvider, omniroute, openai, cloudflare };
+  const gemini = {
+    name: 'google-gemini',
+    enabled: boolEnv('GEMINI_ENABLED', !!strEnv('GEMINI_API_KEY', '')),
+    apiKey: strEnv('GEMINI_API_KEY', ''),
+    imageModel: strEnv('GEMINI_IMAGE_MODEL', 'gemini-3.1-flash-image'),
+    timeoutMs: intEnv('GEMINI_TIMEOUT_MS', 120000),
+    maxRetries: intEnv('GEMINI_MAX_RETRIES', 1),
+  };
+  // Allow explicit override (GEMINI_ENABLED=false disables even with a key present)
+  if (process.env.GEMINI_ENABLED !== undefined && process.env.GEMINI_ENABLED !== '') {
+    gemini.enabled = boolEnv('GEMINI_ENABLED', false);
+  }
+
+  // Strict mode: when true, generateWithFallback uses ONLY the explicitly
+  // selected provider and never falls back to others. Intended for provider
+  // verification/testing so a PASS cannot come from a different provider.
+  // Normal production behavior (fallback chain) is unchanged.
+  const strictProvider = boolEnv('AI_PROVIDER_STRICT', false);
+
+  return { aiProvider, omniroute, openai, cloudflare, gemini, strictProvider };
 }
 
 function isProviderAvailable(name, cfg) {
@@ -89,6 +108,7 @@ function isProviderAvailable(name, cfg) {
   if (name === 'omniroute') return c.omniroute.enabled && !!c.omniroute.apiKey && !!c.omniroute.baseUrl;
   if (name === 'openai') return c.openai.enabled && !!c.openai.apiKey;
   if (name === 'cloudflare') return c.cloudflare.enabled && !!c.cloudflare.apiToken && !!c.cloudflare.accountId;
+  if (name === 'google-gemini') return c.gemini.enabled && !!c.gemini.apiKey;
   return false;
 }
 
@@ -98,14 +118,16 @@ function getAvailableProviders(cfg) {
   if (isProviderAvailable('omniroute', c)) list.push('omniroute');
   if (isProviderAvailable('openai', c)) list.push('openai');
   if (isProviderAvailable('cloudflare', c)) list.push('cloudflare');
+  if (isProviderAvailable('google-gemini', c)) list.push('google-gemini');
   return list;
 }
 
 function getFallbackOrder(primary, cfg) {
   const c = cfg || getConfig();
   const available = getAvailableProviders(c);
-  // Deterministic order: primary first, then remaining in fixed priority omniroute > openai > cloudflare
-  const priority = ['omniroute', 'openai', 'cloudflare'];
+  // Deterministic order: primary first, then remaining in fixed priority
+  // omniroute > openai > cloudflare > google-gemini
+  const priority = ['omniroute', 'openai', 'cloudflare', 'google-gemini'];
   const ordered = [];
   if (primary && available.includes(primary)) ordered.push(primary);
   for (const p of priority) {

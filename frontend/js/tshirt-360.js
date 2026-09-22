@@ -67,17 +67,33 @@ const viewer = {
   modelLoading: false,
   loadToken: 0,
   pendingDesignUrl: null,
+  pendingDesignUrls: null,
   pendingColor: '#ffffff',
   decalMeshes: [],
   shirtMeshes: [],
   colorMeshes: [],
   appliedDesignUrl: null,
+  appliedDesignUrls: { front: null, back: null },
 };
 
 window.tshirt360Viewer = {
   setDesign(url) {
     viewer.pendingDesignUrl = url;
+    viewer.pendingDesignUrls = url ? { front: url, back: null } : null;
     if (viewer.ready) applyDesign(url);
+  },
+  setDesigns(urls) {
+    // Dual-decal: { front, back } — mỗi mặt độc lập, null = không in mặt đó.
+    const norm = urls ? { front: urls.front || null, back: urls.back || null } : null;
+    viewer.pendingDesignUrls = norm;
+    viewer.pendingDesignUrl = norm ? norm.front : null;
+    if (viewer.ready) applyDesigns(norm);
+  },
+  getDecalInfo() {
+    return {
+      count: viewer.decalMeshes.length,
+      applied: { ...viewer.appliedDesignUrls },
+    };
   },
   setColor(color) {
     viewer.pendingColor = color;
@@ -336,7 +352,8 @@ function onModelLoaded(model, entry) {
   container.classList.add('has-real-3d');
   debug3d('loadGarmentModel: ready', entry.id, 'meshes=', viewer.shirtMeshes.length);
   applyColor(viewer.pendingColor);
-  if (viewer.pendingDesignUrl) applyDesign(viewer.pendingDesignUrl);
+  if (viewer.pendingDesignUrls) applyDesigns(viewer.pendingDesignUrls);
+  else if (viewer.pendingDesignUrl) applyDesign(viewer.pendingDesignUrl);
 }
 
 function frameModel(side = 'front', entry) {
@@ -372,26 +389,47 @@ function clearDecals() {
   viewer.decalMeshes = [];
   viewer.decalUniforms = [];
   viewer.appliedDesignUrl = null;
+  viewer.appliedDesignUrls = { front: null, back: null };
 }
 
 function applyDesign(url) {
+  // Legacy single-URL entry (front-only). Delegates to the dual-side version.
+  applyDesigns(url ? { front: url, back: null } : null);
+}
+
+/* Họa tiết in — hỗ trợ ĐỘC LẬP mặt trước VÀ mặt sau.
+   applyDesigns({ front, back }): mỗi bên 1 texture (hoặc null = không in).
+   Decal trước: +Z; decal sau: -Z + quay Y theo PI (đọc đúng chiều khi xem từ sau). */
+function applyDesigns(urls) {
   // Decal clipping runs on the main thread over a dense garment mesh, so
   // re-running it for an identical URL (color/product/position changes)
   // would wedge the UI for seconds. Skip when nothing changed.
-  if (!url) {
+  const norm = urls ? { front: urls.front || null, back: urls.back || null } : { front: null, back: null };
+  if (!norm.front && !norm.back) {
     if (viewer.decalMeshes.length) clearDecals();
     return;
   }
-  if (url === viewer.appliedDesignUrl && viewer.decalMeshes.length) return;
+  if (norm.front === viewer.appliedDesignUrls.front && norm.back === viewer.appliedDesignUrls.back && viewer.decalMeshes.length) return;
   clearDecals();
+  viewer.appliedDesignUrls = { ...norm };
+  viewer.appliedDesignUrl = norm.front;
 
-  new THREE.TextureLoader().load(url, (texture) => {
+  const entry = GARMENT_REGISTRY[viewer.productType];
+  const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 };
+  const { box, size, center } = viewer.bounds;
+  const loader = new THREE.TextureLoader();
+  const sides = [];
+  if (norm.front) sides.push({ side: 'front', url: norm.front });
+  if (norm.back) sides.push({ side: 'back', url: norm.back });
+
+  for (const s of sides) {
+    loader.load(s.url, (texture) => {
     // Stale-callback guard: the garment may have been disposed (product
     // switch) while the texture was in flight — never crash on dead state.
     if (!viewer.bounds || !viewer.shirtMeshes.length) return;
     // A newer design request superseded this load; drop it quietly instead
     // of painting an outdated design.
-    if (viewer.pendingDesignUrl !== url) {
+    if (viewer.appliedDesignUrls[s.side] !== s.url) {
       texture.dispose();
       return;
     }
@@ -403,13 +441,46 @@ function applyDesign(url) {
     const entry = GARMENT_REGISTRY[viewer.productType];
     const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 };
     const { box, size, center } = viewer.bounds;
-    const position = new THREE.Vector3(center.x, center.y + size.y * decalCfg.liftY, box.max.z + size.z * decalCfg.liftZ);
-    const orientation = new THREE.Euler(0, 0, 0);
+    // Back decal: phía -Z + quay Y theo PI (đọc đúng chiều khi nhìn từ sau).
+    const position = s.side === 'back'
+      ? new THREE.Vector3(center.x, center.y + size.y * decalCfg.liftY, box.min.z - size.z * decalCfg.liftZ)
+      : new THREE.Vector3(center.x, center.y + size.y * decalCfg.liftY, box.max.z + size.z * decalCfg.liftZ);
+    const orientation = s.side === 'back' ? new THREE.Euler(0, Math.PI, 0) : new THREE.Euler(0, 0, 0);
     const decalSize = new THREE.Vector3(size.x * decalCfg.scaleX, size.y * decalCfg.scaleY, Math.max(0.08, size.z * decalCfg.depthK));
 
     viewer.shirtMeshes.forEach((target) => {
       const geometry = new DecalGeometry(target, position, orientation, decalSize);
-      if (!geometry.attributes.position?.count) return;
+      /* DecalGeometry với depth lớn bắt CẢ 2 bề mặt áo (trước + sau) — decal
+         mặt sau tạo geometry mirror chui ra mặt trước (và ngược lại). Lọc
+         giữ chỉ tam giác pháp tuyến hướng về phía projector của mặt đó. */
+      const pos = geometry.attributes.position;
+      const norm = geometry.attributes.normal;
+      const uvAttr = geometry.attributes.uv;
+      const idx = geometry.index;
+      // Phía projector: front = +Z, back = -Z (trục local áo, xấp xỉ Z world).
+      const sideSign = s.side === 'back' ? -1 : 1;
+      const keep = [];
+      const triCount = idx ? idx.count / 3 : pos.count / 3;
+      for (let t = 0; t < triCount; t++) {
+        const i0 = idx ? idx.getX(t * 3) : t * 3;
+        // Normal trung bình của tam giác (per-vertex normals).
+        const nx = (norm.getX(i0) + norm.getX(i0 + 1) + norm.getX(i0 + 2)) / 3;
+        const nz = (norm.getZ(i0) + norm.getZ(i0 + 1) + norm.getZ(i0 + 2)) / 3;
+        // Ưu tiên Z (hướng bề mặt áo trước/sau); nếu gần vuông góc thì xét cả X.
+        const facing = Math.abs(nz) >= 0.3 ? nz * sideSign : (nx !== 0 ? nx * sideSign : 1);
+        if (facing > 0.05) {
+          for (let k = 0; k < 3; k++) {
+            const vi = idx ? idx.getX(t * 3 + k) : t * 3 + k;
+            keep.push(pos.getX(vi), pos.getY(vi), pos.getZ(vi), norm.getX(vi), norm.getY(vi), norm.getZ(vi), uvAttr.getX(vi), uvAttr.getY(vi));
+          }
+        }
+      }
+      if (!keep.length) return;
+      const filtered = new THREE.BufferGeometry();
+      filtered.setAttribute('position', new THREE.Float32BufferAttribute(keep.filter((_, i) => i % 8 < 3), 3));
+      filtered.setAttribute('normal', new THREE.Float32BufferAttribute(keep.filter((_, i) => i % 8 >= 3 && i % 8 < 6), 3));
+      filtered.setAttribute('uv', new THREE.Float32BufferAttribute(keep.filter((_, i) => i % 8 >= 6), 2));
+      if (!filtered.attributes.position.count) return;
       const uniforms = {
         map: { value: texture },
         uRemoveWhite: { value: viewer.removeWhiteBg !== false },
@@ -444,17 +515,18 @@ function applyDesign(url) {
           }
         `,
       });
-      const decal = new THREE.Mesh(geometry, material);
+      const decal = new THREE.Mesh(filtered, material);
       decal.renderOrder = 2;
+      geometry.dispose(); // Geometry gốc 2-bề-mặt không còn được dùng.
       viewer.scene.add(decal);
       viewer.decalMeshes.push(decal);
       viewer.decalUniforms.push(uniforms);
     });
-    viewer.appliedDesignUrl = url;
   }, undefined, (err) => {
-    console.warn('[3D] Failed to load decal texture:', url, err);
+    console.warn('[3D] Failed to load decal texture:', s.url, err);
     if (window.showToast) window.showToast('Không thể tải họa tiết lên mô hình 3D.', 'warning');
   });
+  }
 }
 
 function setRemoveWhiteBg(enabled) {
