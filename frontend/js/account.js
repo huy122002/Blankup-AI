@@ -297,6 +297,7 @@ async function triggerQuote(planId, voucherCode) {
   }
   quoteLoading = true;
   const preview = document.getElementById('voucherQuotePreview');
+  const statusTypeMap = {
     'Mã voucher không tồn tại.': 'error',
     'Voucher không hoạt động.': 'error',
     'Voucher chưa bắt đầu.': 'warning',

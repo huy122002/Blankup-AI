@@ -360,6 +360,7 @@ body.pricing-page {
 }
 [data-theme="dark"] .pricing-footer-brand { color: #f5f2eb; }
 .pricing-footer a { color: var(--bk-gold-text); text-decoration: none; }
+.pricing-footer-contact a:hover { text-decoration: underline; }
 
 @media (max-width: 768px) {
   .pricing-nav-links a:not(.btn):not(.active) { display: none; }

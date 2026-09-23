@@ -27,3 +27,6 @@ frontend/assets/models/tshirt-optimized.glb
 .opencode/
 skills-lock.json
 .freebuff/
+
+# Runtime JSON backups
+backend/data/*.bak.*
