@@ -74,9 +74,16 @@ const viewer = {
   colorMeshes: [],
   appliedDesignUrl: null,
   appliedDesignUrls: { front: null, back: null },
+  decalsHidden: false,
+  applyToken: 0,
+  onDecalSwap: null,
 };
 
 window.tshirt360Viewer = {
+  // onDecalSwap do studio.js gán qua window object, nhưng applyDesigns đọc từ
+  // viewer nội bộ → forward bằng getter/setter (cùng họ vấn đề setInteractionMode).
+  get onDecalSwap() { return viewer.onDecalSwap; },
+  set onDecalSwap(fn) { viewer.onDecalSwap = fn; },
   setDesign(url) {
     viewer.pendingDesignUrl = url;
     viewer.pendingDesignUrls = url ? { front: url, back: null } : null;
@@ -95,12 +102,106 @@ window.tshirt360Viewer = {
       applied: { ...viewer.appliedDesignUrls },
     };
   },
+  // Studio gọi khi đổi giữa chế độ kéo layer (position → orbit OFF) và
+  // xoay áo (rotate → orbit ON). Không-an-trước khi initializeViewer chạy.
+  setInteractionMode(mode) {
+    if (viewer.setInteractionMode) viewer.setInteractionMode(mode);
+  },
+  // Đang kéo layer: ẩn decal 3D (preview 2D thay thế theo con trỏ), thả
+  // chuột: hiện lại — decal đã được swap sẵn tại vị trí mới (atomic).
+  setDecalsHidden(hidden) {
+    viewer.decalsHidden = !!hidden;
+    viewer.decalMeshes.forEach((m) => { m.visible = !viewer.decalsHidden; });
+  },
+  // Bề rộng decal TRÊN MÀN HÌNH (px) — project bounding-box 3D qua camera.
+  // Studio dùng để đặt bản-sao-kéo đúng kích thước ảnh thật (không phóng to
+  // khi vừa nhấn kéo, không thu lại khi thả).
+  getDecalScreenWidth(side = 'front') {
+    if (!viewer.ready || !viewer.decalMeshes.length || !viewer.camera) return 0;
+    const mesh = viewer.decalMeshes.find((m) => m.userData?.side === side) || viewer.decalMeshes[0];
+    if (!mesh) return 0;
+    try {
+      const box = new THREE.Box3().setFromObject(mesh);
+      if (box.isEmpty()) return 0;
+      const rect = canvas.getBoundingClientRect();
+      let minX = Infinity, maxX = -Infinity;
+      for (let i = 0; i < 8; i++) {
+        const v = new THREE.Vector3(
+          i & 1 ? box.max.x : box.min.x,
+          i & 2 ? box.max.y : box.min.y,
+          i & 4 ? box.max.z : box.min.z,
+        ).project(viewer.camera);
+        const sx = (v.x * 0.5 + 0.5) * rect.width;
+        minX = Math.min(minX, sx);
+        maxX = Math.max(maxX, sx);
+      }
+      return maxX - minX;
+    } catch (e) { return 0; }
+  },
+  /* CHUYỂN ĐỔI TỌA ĐỘ ĐÚNG THEO PIXEL 3D — chìa khóa hết lệch drag:
+     điểm (px, py) theo % vị trí composite (hệ tạo ảnh in) → tọa độ màn hình
+     thật. Cách làm: điểm 3D trên mặt decal plane = center + offset theo tỷ lệ
+     decal (decal chiếm scaleX×scaleY kích thước áo, composite 1024 map trọn
+     vào decal) → project qua camera → pixel. Studio dùng để đặt preview/ghost
+     đúng pixel nơi ảnh sẽ in, kéo tới đâu thấy đúng đó. */
+  screenPosFromPrintPoint(px, py, side = 'front') {
+    if (!viewer.ready || !viewer.camera || !viewer.bounds) return null;
+    try {
+      const entry = GARMENT_REGISTRY[viewer.productType];
+      const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36, liftY: 0.06 };
+      const { size, center } = viewer.bounds;
+      // Bán kính decal trên thân áo (theo 2 trục). Điểm (px,py) hệ %: tâm (0,0).
+      const decalW = size.x * decalCfg.scaleX;
+      const decalH = size.y * decalCfg.scaleY;
+      const x = center.x + (px / 100) * (decalW / 2);
+      // Trục Y thế giới: py dương = XUỐNG dưới (hệ ảnh) → trừ.
+      // printCenterOffset: hệ tạo ảnh đặt tâm dọc ở 44% cao vùng in (decal
+      // origin tại 50%) → dịch +6% để khớp pixel với bản in thật.
+      const printCenterOffset = 0.06 * decalH;
+      const yFinal = center.y + size.y * decalCfg.liftY - (py / 100) * (decalH / 2) + printCenterOffset;
+      const sideSign = side === 'back' ? -1 : 1;
+      const zBase = side === 'back'
+        ? viewer.bounds.box.min.z - size.z * decalCfg.liftZ
+        : viewer.bounds.box.max.z + size.z * decalCfg.liftZ;
+      // Nới z về phía camera 1 chút để project không bị mặt áo che.
+      const z = zBase + sideSign * size.z * 0.05;
+      const rect = canvas.getBoundingClientRect();
+      const proj = new THREE.Vector3(x, yFinal, z).project(viewer.camera);
+      return {
+        x: rect.left + (proj.x * 0.5 + 0.5) * rect.width,
+        y: rect.top + (-proj.y * 0.5 + 0.5) * rect.height,
+        visible: proj.z < 1,
+      };
+    } catch (e) { return null; }
+  },
+  /* Bán kính decal trên MÀN HÌNH theo từng trục (px) — boundary khớp pixel. */
+  getDecalScreenRadii(side = 'front') {
+    const dw = this.getDecalScreenWidth(side);
+    if (!dw) return null;
+    const entry = GARMENT_REGISTRY[viewer.productType];
+    const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36 };
+    const { size } = viewer.bounds;
+    // Tỷ lệ W:H của decal theo cfg (scaleX trên size.x, scaleY trên size.y).
+    const ratio = (size.y * decalCfg.scaleY) / (size.x * decalCfg.scaleX);
+    return { w: dw, h: dw * ratio };
+  },
   setColor(color) {
     viewer.pendingColor = color;
     if (viewer.ready) applyColor(color);
   },
   resize() {
     if (viewer.resize) viewer.resize();
+  },
+  // Render MỘT frame đồng bộ (không qua rAF loop). Dùng cho kiểm thử: đọc
+  // pixel ngay sau lời gọi này trong cùng task vẫn hợp lệ kể cả khi tab ẩn
+  // (rAF bị throttle 0 — buffer đã bị xóa sau composite).
+  renderFrame() {
+    if (viewer.ready && viewer.renderer && viewer.scene && viewer.camera) {
+      viewer.controls.update();
+      viewer.renderer.render(viewer.scene, viewer.camera);
+      return true;
+    }
+    return false;
   },
   showSide(side) {
     if (viewer.ready) frameModel(side);
@@ -155,9 +256,13 @@ function initializeViewer() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 100);
   const controls = new OrbitControls(camera, canvas);
-  controls.enableDamping = true;
-  controls.dampingFactor = 0.08;
+  // Xoay CHỈ khi nhấn giữ + kéo; thả chuột → dừng NGAY (không quán tính).
+  // Damping gây quán tính xoay tiếp sau khi thả — cảm giác “không controlled”
+  // theo feedback người dùng → tắt hẳn, orbit trực tiếp theo con trỏ.
+  controls.enableDamping = false;
   controls.enablePan = false;
+  // Chỉ còn 2 luồng thao tác: kéo trái = xoay, lăn = zoom. Khóa cách khác.
+  controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: null };
   controls.minPolarAngle = Math.PI * 0.32;
   controls.maxPolarAngle = Math.PI * 0.68;
 
@@ -183,6 +288,11 @@ function initializeViewer() {
   viewer.camera = camera;
   viewer.controls = controls;
   viewer.floor = floor;
+
+  // Studio đổi giữa 2 chế độ: kéo layer (orbit phải TẮT — không áo xoay theo
+  // khi kéo mẫu in) và xoay áo (orbit BẬT). Hook này studio.js đã gọi từ trước
+  // nhưng chưa từng được implement — giờ là code thật.
+  viewer.setInteractionMode = (mode) => { controls.enabled = mode !== 'position'; };
 
   const resize = () => {
     const rect = canvas.getBoundingClientRect();
@@ -399,7 +509,21 @@ function applyDesign(url) {
 
 /* Họa tiết in — hỗ trợ ĐỘC LẬP mặt trước VÀ mặt sau.
    applyDesigns({ front, back }): mỗi bên 1 texture (hoặc null = không in).
-   Decal trước: +Z; decal sau: -Z + quay Y theo PI (đọc đúng chiều khi xem từ sau). */
+   Decal trước: +Z; decal sau: -Z + quay Y theo PI (đọc đúng chiều khi xem từ sau).
+
+   DECAL LIGHTING — ảnh in phải "ăn vào vải" thay vì là khối ảnh dán đè:
+   shader decal tính ánh sáng BẰNG ĐÚNG bộ đèn của scene (hằng số dưới đây
+   phải khớp setup đèn trong initThreeViewer — Hemisphere 2.2, key 3.4 tại
+   (3.5,5,4), fill 1.4 tại (-4,2,2)). Pháp tuyến per-vertex của decal kế
+   thừa từ lưới áo (DecalGeometry) → nếp gấp vải tự shading lên ảnh in.
+   Màu đèn chuyển sang linear để nhân trực tiếp trong shader. */
+const DECAL_KEY_DIR = new THREE.Vector3(3.5, 5, 4).normalize();
+const DECAL_FILL_DIR = new THREE.Vector3(-4, 2, 2).normalize();
+const DECAL_KEY_COLOR = new THREE.Color(1, 1, 1).multiplyScalar(3.4);
+const DECAL_FILL_COLOR = new THREE.Color(0xdbeafe).multiplyScalar(1.4);
+const DECAL_HEMI_SKY = new THREE.Color(1, 1, 1).multiplyScalar(2.2);
+const DECAL_HEMI_GROUND = new THREE.Color(0x8692a5).multiplyScalar(2.2);
+
 function applyDesigns(urls) {
   // Decal clipping runs on the main thread over a dense garment mesh, so
   // re-running it for an identical URL (color/product/position changes)
@@ -409,10 +533,28 @@ function applyDesigns(urls) {
     if (viewer.decalMeshes.length) clearDecals();
     return;
   }
-  if (norm.front === viewer.appliedDesignUrls.front && norm.back === viewer.appliedDesignUrls.back && viewer.decalMeshes.length) return;
-  clearDecals();
+  if (norm.front === viewer.appliedDesignUrls.front && norm.back === viewer.appliedDesignUrls.back && viewer.decalMeshes.length) {
+    // Nothing changed — decal đã ở trạng thái đích (thường do rebuild debounced
+    // trong lúc kéo đã dựng xong trước khi thả). Vẫn phải báo studio biết để
+    // nó tắt preview 2D, nếu không preview treo mãi tới timeout.
+    if (typeof viewer.onDecalSwap === 'function') {
+      const cbEarly = viewer.onDecalSwap;
+      viewer.onDecalSwap = null;
+      try { cbEarly(); } catch (e) { /* */ }
+    }
+    return;
+  }
+  /* ATOMIC SWAP — trước đây clearDecals() gỡ decal cũ NGAY khi texture mới
+     còn tải async → giữa hai decal có khoảng trống = “nháy màn hình 1 cái”
+     khi thả chuột sau khi kéo. Giờ: giữ decal cũ hiển thị, xây decal mới
+     song song, thay toàn bộ trong 1 tick khi mọi texture sẵn sàng. */
+  const requestToken = ++viewer.applyToken;
   viewer.appliedDesignUrls = { ...norm };
   viewer.appliedDesignUrl = norm.front;
+  const oldMeshes = viewer.decalMeshes;
+  const newMeshes = [];
+  const newUniforms = [];
+  let pendingLoads = 0;
 
   const entry = GARMENT_REGISTRY[viewer.productType];
   const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 };
@@ -421,15 +563,17 @@ function applyDesigns(urls) {
   const sides = [];
   if (norm.front) sides.push({ side: 'front', url: norm.front });
   if (norm.back) sides.push({ side: 'back', url: norm.back });
+  pendingLoads = sides.length;
+  if (!pendingLoads) return;
 
   for (const s of sides) {
     loader.load(s.url, (texture) => {
     // Stale-callback guard: the garment may have been disposed (product
     // switch) while the texture was in flight — never crash on dead state.
-    if (!viewer.bounds || !viewer.shirtMeshes.length) return;
+    if (!viewer.bounds || !viewer.shirtMeshes.length) { texture.dispose(); return; }
     // A newer design request superseded this load; drop it quietly instead
     // of painting an outdated design.
-    if (viewer.appliedDesignUrls[s.side] !== s.url) {
+    if (requestToken !== viewer.applyToken || viewer.appliedDesignUrls[s.side] !== s.url) {
       texture.dispose();
       return;
     }
@@ -484,7 +628,19 @@ function applyDesigns(urls) {
       const uniforms = {
         map: { value: texture },
         uRemoveWhite: { value: viewer.removeWhiteBg !== false },
+        uKeyDir: { value: DECAL_KEY_DIR },
+        uKeyColor: { value: DECAL_KEY_COLOR },
+        uFillDir: { value: DECAL_FILL_DIR },
+        uFillColor: { value: DECAL_FILL_COLOR },
+        uHemiSky: { value: DECAL_HEMI_SKY },
+        uHemiGround: { value: DECAL_HEMI_GROUND },
       };
+      /* Fragment shader "in vào vải": lambert với đúng bộ đèn scene (cùng
+         công thức MeshStandard/Lambert — irradiance chia π), pháp tuyến lấy
+         từ lưới áo nên nếp gấp thật của vải in bóng lên họa tiết. Hằng số
+         0.97 = mực in hấp thụ nhẹ, khiến ảnh "nằm trong" vải thay vì nổi.
+         colorspace_fragment: xuất sRGB chuẩn khớp pipeline material sẵn có
+         (trước đây xuất linear thô — decal tối hơn bản composite 2D). */
       const material = new THREE.ShaderMaterial({
         uniforms,
         transparent: true,
@@ -494,15 +650,24 @@ function applyDesigns(urls) {
         polygonOffsetFactor: -4,
         vertexShader: `
           varying vec2 vUv;
+          varying vec3 vNormalW;
           void main() {
             vUv = uv;
+            vNormalW = normalize(mat3(modelMatrix) * normal);
             gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
           }
         `,
         fragmentShader: `
           uniform sampler2D map;
           uniform float uRemoveWhite;
+          uniform vec3 uKeyDir;
+          uniform vec3 uKeyColor;
+          uniform vec3 uFillDir;
+          uniform vec3 uFillColor;
+          uniform vec3 uHemiSky;
+          uniform vec3 uHemiGround;
           varying vec2 vUv;
+          varying vec3 vNormalW;
           void main() {
             vec4 pixel = texture2D(map, vUv);
             if (pixel.a < 0.08) discard;
@@ -511,18 +676,47 @@ function applyDesigns(urls) {
               float low = min(pixel.r, min(pixel.g, pixel.b));
               if (high > 0.84 && high - low < 0.22) discard;
             }
-            gl_FragColor = pixel;
+            vec3 n = normalize(vNormalW);
+            float hemiW = n.y * 0.5 + 0.5;
+            vec3 hemi = mix(uHemiGround, uHemiSky, hemiW);
+            float ndlKey = max(dot(n, uKeyDir), 0.0);
+            float ndlFill = max(dot(n, uFillDir), 0.0);
+            vec3 lit = pixel.rgb * (hemi + uKeyColor * ndlKey + uFillColor * ndlFill) / 3.14159265;
+            gl_FragColor = vec4(lit * 0.97, pixel.a);
+            #include <colorspace_fragment>
           }
         `,
       });
       const decal = new THREE.Mesh(filtered, material);
       decal.renderOrder = 2;
+      decal.userData.side = s.side; // để tra decal theo mặt khi đo kích thước
       geometry.dispose(); // Geometry gốc 2-bề-mặt không còn được dùng.
-      viewer.scene.add(decal);
-      viewer.decalMeshes.push(decal);
-      viewer.decalUniforms.push(uniforms);
+      // Chưa add vào scene — đợi đủ texture của mọi mặt rồi swap nguyên khối.
+      newMeshes.push(decal);
+      newUniforms.push(uniforms);
+      pendingLoads -= 1;
+      if (pendingLoads === 0) {
+        if (requestToken !== viewer.applyToken) {
+          // Request đã bị thay thế — dọn mesh chưa từng vào scene.
+          newMeshes.forEach((m) => { m.geometry.dispose(); m.material.dispose(); });
+          return;
+        }
+        // Swap 1 tick: gỡ cũ → thêm mới → không bao giờ mất thiết kế giữa chừng.
+        oldMeshes.forEach((m) => { m.geometry.dispose(); m.material.dispose(); viewer.scene.remove(m); });
+        newMeshes.forEach((m) => { m.visible = !viewer.decalsHidden; viewer.scene.add(m); });
+        viewer.decalMeshes = newMeshes;
+        viewer.decalUniforms = newUniforms;
+        // Studio dùng để biết decal đã "đổ bộ" — tắt preview 2D NGAY SAU KHI
+        // decal mới đã sẵn sàng (không có khoảng trống hình ảnh = không nháy).
+        if (typeof viewer.onDecalSwap === 'function') {
+          const cb = viewer.onDecalSwap;
+          viewer.onDecalSwap = null;
+          try { cb(); } catch (e) { /* */ }
+        }
+      }
     });
   }, undefined, (err) => {
+    pendingLoads -= 1; // lỗi 1 mặt vẫn cho các mặt còn lại swap được
     console.warn('[3D] Failed to load decal texture:', s.url, err);
     if (window.showToast) window.showToast('Không thể tải họa tiết lên mô hình 3D.', 'warning');
   });

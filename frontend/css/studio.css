@@ -1175,7 +1175,9 @@
   text-overflow: ellipsis;
   overflow-wrap: anywhere;
   color: #111827;
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.92), 0 2px 14px rgba(255, 255, 255, 0.75);
+  /* Stroke/viền điều khiển qua inline style từ renderStyledTextOverlay()
+     (đồng bộ composite). Không hard-code text-shadow ở đây — quyền
+     hiển thị thuộc về style người dùng chọn. */
   transform: translate(calc(-50% + var(--text-x, 0%)), calc(-50% + var(--text-y, 0%))) scale(var(--text-scale, 1));
   user-select: none;
   pointer-events: none;
@@ -1501,43 +1503,7 @@
   gap: 4px;
 }
 
-.placement-slider-group label {
-  font-size: 0.75rem;
-  font-weight: 500;
-  color: var(--s-text-muted);
-}
-
-.placement-slider-group input[type="range"] {
-  width: 100%;
-  height: 4px;
-  -webkit-appearance: none;
-  appearance: none;
-  background: var(--s-border-strong);
-  border-radius: 2px;
-  outline: none;
-  transition: var(--s-transition-fast);
-}
-
-.placement-slider-group input[type="range"]:hover {
-  background: var(--s-accent);
-}
-
-.placement-slider-group input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--s-accent);
-  cursor: pointer;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
-  transition: var(--s-transition-fast);
-}
-
-.placement-slider-group input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-  box-shadow: 0 1px 4px rgba(15, 12, 9, 0.25);
-}
+/* (input/track/thumb styling đã chuyển xuống block ATELIER CONTROL cuối file) */
 
 /* ============================================================
    RIGHT PANEL — Product & Actions
@@ -2500,7 +2466,6 @@
   }
 
   .placement-sliders { grid-template-columns: 1fr; }
-  .placement-sliders input[type="range"] { height: 28px; }
 }
 
 /* ============================================================
@@ -3773,22 +3738,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   .action-btn:hover:not(:disabled) { transform: translateY(-1px); }
 }
 
-/* Sliders: 44px hit area, gold thumb stays */
-.placement-sliders input[type="range"] {
-  min-height: 44px;
-  width: 100%;
-}
-.placement-sliders input[type="range"]::-webkit-slider-thumb {
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-}
-.placement-sliders input[type="range"]::-moz-range-thumb {
-  width: 28px;
-  height: 28px;
-  cursor: pointer;
-  border-radius: 50%;
-}
+/* (slider mobile styling đã gộp vào block ATELIER CONTROL cuối file) */
 
 /* Progressive disclosure on mobile: suggestions become a
    horizontal swipe row instead of a tall wrapping wall */
@@ -3871,3 +3821,735 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   .canvas-wrapper { height: 72vh; min-height: 260px; }
   .studio-right .actions-section { position: static; }
 }
+
+/* ============================================================
+   VIEWER OVERLAY — 2 chế độ hiển thị:
+   • Fallback 2D (không có .has-real-3d): overlay cần kích thước thật
+     để layer preview hiển thị trên khung áo.
+   • Real 3D (.has-real-3d): thiết kế hiển thị qua DECAL trên áo — overlay
+     2D phải ẩn (opacity 0) để KHÔNG thành ảnh thứ 2 trôi cạnh áo.
+   ============================================================ */
+.canvas-viewer:not(.has-real-3d) .viewer-design-overlay {
+  width: 46%;
+  aspect-ratio: 1;
+  max-width: 460px;
+}
+.canvas-viewer.has-real-3d .viewer-design-overlay .mockup-print-design,
+.canvas-viewer.has-real-3d .viewer-design-overlay .mockup-print-text {
+  opacity: 0;
+  /* QUAN TRỌNG: bắt buộc pointer-events:none — chỉ ẩn bằng opacity là element
+     vẫn NGHIẾT chuột, chặn pointerdown xuống canvas drag handler (kéo ảnh/chữ
+     "chết" thoạt nhìn, thật ra event bị node vô hình nuốt mất). */
+  pointer-events: none !important;
+}
+/* ĐANG KÉO LAYER: preview 2D hiện lại ngay (bám con trỏ 1:1) thay thế decal
+   3D tạm thời — kéo tới đâu ảnh theo tới đó. Thả chuột: decal mới đã dựng
+   xong (atomic swap) rồi preview mới tắt → không nháy. */
+.canvas-viewer.is-layer-dragging.has-real-3d .viewer-design-overlay .mockup-print-design,
+.canvas-viewer.is-layer-dragging.has-real-3d .viewer-design-overlay .mockup-print-text {
+  opacity: 0.85;
+  pointer-events: none;
+}
+.canvas-viewer.is-layer-dragging .viewer-design-overlay .mockup-print-design {
+  outline: 2px dashed color-mix(in srgb, var(--s-accent, #ff6b00) 70%, transparent);
+  outline-offset: 4px;
+}
+
+/* ============================================================
+   STICKER PICKER — chi tiết tùy ý trên áo
+   ============================================================ */
+.sticker-picker {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin: 8px 0 4px;
+}
+.sticker-chip {
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+  background: var(--s-card);
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.sticker-chip:hover {
+  transform: translateY(-2px) scale(1.08);
+  border-color: var(--s-accent);
+  box-shadow: 0 3px 10px rgba(15, 12, 9, 0.12);
+  z-index: 1;
+}
+.sticker-chip:active { transform: scale(0.92); }
+.sticker-hint {
+  font-size: 0.72rem;
+  color: var(--s-text-muted);
+  margin: 2px 0 0;
+  line-height: 1.45;
+}
+
+/* ============================================================
+   ATELIER CONTROL — thanh điều chỉnh bản in kiểu xưởng in đắt tiền.
+   Mỗi control 1 thẻ riêng · label mono giãn rộng · chip giá trị vàng ·
+   track gold phát sáng · thumb kim loại đánh bóng. (thay SLIDER POLISH cũ)
+   ============================================================ */
+.placement-sliders {
+  gap: 10px;
+}
+.placement-slider-group {
+  gap: 7px;
+  background: var(--s-card);
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+  padding: 9px 12px 11px;
+  box-shadow: 0 1px 2px rgba(15, 12, 9, 0.04), 0 3px 10px -6px rgba(15, 12, 9, 0.12);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.placement-slider-group:hover {
+  border-color: var(--s-border-accent);
+  box-shadow: 0 1px 2px rgba(15, 12, 9, 0.05), 0 6px 16px -8px rgba(193, 152, 86, 0.35);
+}
+.placement-slider-group:focus-within {
+  border-color: var(--s-border-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--s-accent) 14%, transparent);
+}
+
+.placement-slider-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.placement-slider-top label {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 0.64rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--s-text-muted);
+}
+.slider-value {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--s-accent-text);
+  background: var(--s-accent-light);
+  border: 1px solid color-mix(in srgb, var(--s-accent) 26%, transparent);
+  border-radius: 999px;
+  padding: 1px 8px;
+  min-width: 40px;
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* Track: vẽ bằng background của chính input (độ tin cậy cao nhất trên cả
+   WebKit + Gecko) — gold metallic dẫn từ trái, tỏa từ tâm với .center-origin. */
+.placement-slider-group input[type="range"] {
+  width: 100%;
+  height: 18px;
+  -webkit-appearance: none;
+  appearance: none;
+  background:
+    linear-gradient(to right,
+      var(--s-accent) 0%,
+      var(--s-accent) var(--fill, 0%),
+      var(--s-border-strong) var(--fill, 0%),
+      var(--s-border-strong) 100%) no-repeat 0 50% / 100% 4px;
+  border-radius: 999px;
+  outline: none;
+  cursor: pointer;
+  transition: none;
+}
+.placement-slider-group input[type="range"].center-origin {
+  background:
+    linear-gradient(var(--s-border-strong), var(--s-border-strong)) no-repeat 50% 50% / 2px 10px,
+    linear-gradient(to right,
+      transparent 0%,
+      transparent calc(50% - var(--off, 0%)),
+      var(--s-accent) calc(50% - var(--off, 0%)),
+      var(--s-accent) calc(50% + var(--off, 0%)),
+      transparent calc(50% + var(--off, 0%)),
+      transparent 100%) no-repeat 0 50% / 100% 4px;
+}
+.placement-slider-group input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--s-border-strong);
+}
+.placement-slider-group input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--s-accent);
+}
+.placement-slider-group input[type="range"].center-origin::-moz-range-progress { background: transparent; }
+.placement-slider-group input[type="range"].center-origin::-moz-range-track {
+  background:
+    linear-gradient(var(--s-border-strong), var(--s-border-strong)) no-repeat 50% 50% / 2px 10px,
+    linear-gradient(to right,
+      transparent 0%,
+      transparent calc(50% - var(--off, 0%)),
+      var(--s-accent) calc(50% - var(--off, 0%)),
+      var(--s-accent) calc(50% + var(--off, 0%)),
+      transparent calc(50% + var(--off, 0%)),
+      transparent 100%) no-repeat 0 50% / 100% 4px;
+}
+
+/* Thumb: đĩa kim loại gold đánh bóng, viền ink — sang và rõ */
+.placement-slider-group input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, #eed9a9, #b98f47 28%, #f4e3b8 52%, #a87f42 74%, #eed9a9);
+  border: 2px solid rgba(15, 12, 9, 0.88);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    0 1px 3px rgba(15, 12, 9, 0.4),
+    0 0 0 0 color-mix(in srgb, var(--s-accent) 0%, transparent);
+  transition: transform 0.14s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.14s ease;
+  margin-top: 0; /* center giữa track 4px */
+}
+.placement-slider-group input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.12); }
+.placement-slider-group input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.2);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.65),
+    0 1px 3px rgba(15, 12, 9, 0.4),
+    0 0 0 5px color-mix(in srgb, var(--s-accent) 20%, transparent);
+}
+.placement-slider-group input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: conic-gradient(from 210deg, #eed9a9, #b98f47 28%, #f4e3b8 52%, #a87f42 74%, #eed9a9);
+  border: 2px solid rgba(15, 12, 9, 0.88);
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.65), 0 1px 3px rgba(15, 12, 9, 0.4);
+  cursor: pointer;
+}
+
+/* Reset: nút con dấu nhỏ — ink trên paper, luôn nhìn thấy */
+.placement-reset-btn {
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 0.64rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--s-text);
+  background: transparent;
+  border: 1px solid var(--s-border-strong);
+  border-radius: 999px;
+  padding: 4px 13px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.placement-reset-btn:hover {
+  background: var(--s-text);
+  border-color: var(--s-text);
+  color: var(--s-text-inverse);
+}
+.placement-reset-btn:active { transform: scale(0.96); }
+
+/* Coarse pointer: vùng bấm dày hơn — thumb/track to hơn, KHÔNG track thành viên thuốc */
+@media (pointer: coarse) {
+  .placement-slider-group input[type="range"] { height: 28px; }
+  .placement-slider-group input[type="range"] {
+    background-size: 100% 5px;
+  }
+  .placement-slider-group input[type="range"].center-origin {
+    background-size: 2px 12px, 100% 5px;
+  }
+  .placement-slider-group input[type="range"]::-webkit-slider-thumb { width: 22px; height: 22px; }
+  .placement-slider-group input[type="range"]::-moz-range-thumb { width: 22px; height: 22px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .placement-slider-group,
+  .placement-slider-group input[type="range"],
+  .placement-slider-group input[type="range"]::-webkit-slider-thumb,
+  .placement-reset-btn { transition: none; }
+}
+
+/* Layer list — hover + selected rõ hơn, mượt hơn */
+.layer-row {
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.layer-row:hover {
+  border-color: var(--s-accent);
+  transform: translateX(2px);
+}
+.layer-row.selected {
+  border-color: var(--s-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--s-accent) 22%, transparent);
+}
+.layer-row .layer-btn {
+  transition: background 0.12s ease, transform 0.12s ease;
+}
+.layer-row .layer-btn:hover { transform: scale(1.12); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sticker-chip, .layer-row, .layer-row .layer-btn,
+  .placement-slider-group input[type="range"],
+  .placement-slider-group input[type="range"]::-webkit-slider-thumb { transition: none; }
+}
+
+/* ============================================================
+   DRAG PREVIEW — ảnh clone bám con trỏ khi kéo layer (screen-space,
+   fixed). Tạo bằng JS, gỡ sau atomic swap → kéo tới đâu THẤY tới đó.
+   ============================================================ */
+.studio-drag-preview {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0.92;
+  filter: drop-shadow(0 4px 14px rgba(15, 12, 9, 0.35));
+  /* KHÔNG có translate(-50%,-50%) — left/top đã là góc trên-trái của ảnh thật
+     (đo bằng getBoundingClientRect). Có translate làm tâm preview dồn về góc
+     trái-trên → ảnh “nhảy” lên góc trên trái của con trỏ lúc bắt đầu kéo. */
+  will-change: left, top;
+}
+
+/* ============================================================
+   TEXT STYLE CONTROLS — "Atelier Type Case"
+   Ngôn ngữ thiết kế khớp placement sliders: thẻ porcelain, label
+   mono giãn rộng, chip giá trị gold. Mọi tương tác dùng transform
+   (không layout-thrash) — mượt theo tiêu chí thương hiệu.
+   ============================================================ */
+.text-style-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  margin-top: 6px;
+  background: var(--s-card);
+  border: 1px solid var(--s-border);
+  border-radius: 10px;
+}
+.text-style-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+}
+.text-style-row-slider { gap: 10px; }
+.text-style-label {
+  flex: 0 0 auto;
+  min-width: 44px;
+  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-size: 0.62rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--s-text-muted);
+}
+.text-style-select-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.text-style-select {
+  width: 100%;
+  height: 32px;
+  padding: 0 26px 0 10px;
+  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  color: var(--s-text);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 0.16s var(--s-ease, ease), box-shadow 0.16s var(--s-ease, ease);
+}
+.text-style-select:hover { border-color: var(--s-accent); }
+.text-style-select:focus-visible {
+  outline: none;
+  border-color: var(--s-accent);
+  box-shadow: 0 0 0 3px var(--s-accent-glow, rgba(163, 124, 58, 0.18));
+}
+.text-style-select-wrap::after {
+  content: '';
+  position: absolute;
+  right: 11px; top: 50%;
+  width: 6px; height: 6px;
+  border-right: 1.5px solid var(--s-text-muted);
+  border-bottom: 1.5px solid var(--s-text-muted);
+  transform: translateY(-70%) rotate(45deg);
+  pointer-events: none;
+}
+/* Case buttons — AA / aa / Aa / A|a */
+.text-case-group {
+  display: flex;
+  flex: 1 1 auto;
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+.text-case-btn {
+  flex: 1 1 0;
+  min-width: 0;
+  height: 26px;
+  font-family: Georgia, serif;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--s-text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s var(--s-ease, ease), color 0.15s var(--s-ease, ease), box-shadow 0.15s var(--s-ease, ease);
+}
+.text-case-btn:hover { color: var(--s-text); background: var(--s-accent-soft, rgba(163, 124, 58, 0.1)); }
+.text-case-btn.active {
+  color: var(--s-accent-text, #7d5f2c);
+  background: var(--s-card);
+  box-shadow: inset 0 0 0 1px var(--s-accent), 0 1px 3px rgba(15, 12, 9, 0.12);
+}
+[data-theme="dark"] .text-case-btn.active { color: var(--s-accent); }
+/* B / U / S toggles */
+.text-style-toggles { display: flex; gap: 4px; flex: 0 0 auto; }
+.text-toggle-btn {
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: Georgia, serif;
+  font-size: 0.78rem;
+  color: var(--s-text-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: all 0.15s var(--s-ease, ease);
+}
+.text-toggle-btn em { font-style: italic; }
+.text-toggle-btn u { text-decoration: underline; text-underline-offset: 2px; }
+.text-toggle-btn:hover { border-color: var(--s-accent); color: var(--s-text); }
+.text-toggle-btn.active {
+  color: var(--s-accent-text, #7d5f2c);
+  border-color: var(--s-accent);
+  background: var(--s-accent-soft, rgba(163, 124, 58, 0.12));
+  box-shadow: 0 0 0 1px var(--s-accent) inset;
+}
+[data-theme="dark"] .text-toggle-btn.active { color: var(--s-accent); }
+/* Color input + presets */
+.text-color-input {
+  width: 30px; height: 30px;
+  padding: 0;
+  flex: 0 0 auto;
+  border: 1px solid var(--s-border);
+  border-radius: 7px;
+  background: var(--s-surface);
+  cursor: pointer;
+  transition: border-color 0.15s var(--s-ease, ease), transform 0.15s var(--s-ease, ease);
+}
+.text-color-input:hover { border-color: var(--s-accent); transform: scale(1.06); }
+.text-color-input::-webkit-color-swatch-wrapper { padding: 3px; }
+.text-color-input::-webkit-color-swatch { border: none; border-radius: 4px; }
+.text-color-presets {
+  display: flex;
+  gap: 7px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--s-border);
+}
+.text-color-dot {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--s-border);
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.15s var(--s-ease, ease), box-shadow 0.15s var(--s-ease, ease);
+}
+.text-color-dot:hover { transform: scale(1.15); }
+.text-color-dot.active {
+  box-shadow: 0 0 0 2px var(--s-card), 0 0 0 3.5px var(--s-accent);
+}
+/* Spacing slider khớp hệ slider Atelier (track mảnh, thumb gold) */
+.text-style-row-slider input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 20px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(
+    to right,
+    var(--s-accent) 0 var(--fill, 0%),
+    var(--s-border) var(--fill, 0%) 100%
+  );
+  background-clip: content-box;
+  padding: 8px 0;
+  border-radius: 0;
+  cursor: pointer;
+}
+.text-style-row-slider input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #e8cf9e, var(--s-accent));
+  border: 2px solid var(--s-ink, #0f0c09);
+  box-shadow: 0 1px 4px rgba(15, 12, 9, 0.35);
+  transition: transform 0.12s var(--s-ease, ease);
+}
+.text-style-row-slider input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.text-style-row-slider input[type="range"]::-webkit-slider-thumb:active { transform: scale(0.95); }
+.text-style-row-slider input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #e8cf9e, var(--s-accent));
+  border: 2px solid var(--s-ink, #0f0c09);
+}
+.text-style-row-slider .slider-value {
+  flex: 0 0 38px;
+  text-align: right;
+  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-size: 0.66rem;
+  color: var(--s-accent-text, #7d5f2c);
+}
+[data-theme="dark"] .text-style-row-slider .slider-value { color: var(--s-accent); }
+
+/* Mobile: cảm ứng thoải mái, không track "viên thuốc" */
+@media (max-width: 768px) {
+  .text-style-controls { padding: 8px; }
+  .text-case-btn { height: 34px; }
+  .text-toggle-btn { width: 34px; height: 34px; }
+  .text-color-dot { width: 26px; height: 26px; }
+  .text-color-input { width: 34px; height: 34px; }
+}
+
+/* ============================================================
+   SNAP GUIDES + DRAG HUD — hệ dẫn hướng căn chỉnh chuẩn pro
+   ============================================================ */
+.snap-guide {
+  position: absolute;
+  pointer-events: none;
+  z-index: 40;
+  opacity: 0;
+  transition: opacity 0.12s var(--s-ease, ease);
+}
+.snap-guide.active { opacity: 1; }
+.snap-guide-v {
+  top: 6%; bottom: 6%; left: 50%;
+  width: 1.5px;
+  transform: translateX(-50%);
+  background: linear-gradient(to bottom, transparent, var(--s-accent) 18%, var(--s-accent) 82%, transparent);
+  box-shadow: 0 0 8px rgba(212, 175, 110, 0.65);
+}
+.snap-guide-h {
+  left: 8%; right: 8%; top: 50%;
+  height: 1.5px;
+  transform: translateY(-50%);
+  background: linear-gradient(to right, transparent, var(--s-accent) 18%, var(--s-accent) 82%, transparent);
+  box-shadow: 0 0 8px rgba(212, 175, 110, 0.65);
+}
+.drag-hud {
+  position: absolute;
+  z-index: 41;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%) translateY(6px);
+  padding: 6px 14px;
+  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--s-text);
+  background: color-mix(in srgb, var(--s-card, #fffdf8) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--s-border);
+  border-radius: 999px;
+  box-shadow: 0 6px 24px rgba(15, 12, 9, 0.22);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s var(--s-ease, ease), transform 0.12s var(--s-ease, ease);
+  white-space: nowrap;
+}
+.drag-hud.active { opacity: 1; transform: translateX(-50%) translateY(0); }
+.drag-hud.snap-locked {
+  color: var(--s-accent-text, #7d5f2c);
+  border-color: var(--s-accent);
+  box-shadow: 0 0 0 1px var(--s-accent) inset, 0 6px 24px rgba(15, 12, 9, 0.25);
+}
+.drag-hud.snap-locked::before { content: '⌖ '; }
+[data-theme="dark"] .drag-hud.snap-locked { color: var(--s-accent); }
+/* Nút căn giữa nhanh trong header panel */
+.align-quick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.align-btn {
+  width: 26px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 0.78rem;
+  line-height: 1;
+  color: var(--s-text-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.14s var(--s-ease, ease);
+}
+.align-btn:hover {
+  color: var(--s-accent-text, #7d5f2c);
+  border-color: var(--s-accent);
+  background: var(--s-accent-soft, rgba(163, 124, 58, 0.1));
+  transform: translateY(-1px);
+}
+[data-theme="dark"] .align-btn:hover { color: var(--s-accent); }
+/* Hint giữ Alt/lăn chuột — hiện góc dưới khung viewer */
+.viewer-hint {
+  position: absolute;
+  z-index: 39;
+  left: 50%;
+  top: 12px;
+  transform: translateX(-50%);
+  padding: 5px 12px;
+  font-size: 0.68rem;
+  color: var(--s-text-muted);
+  background: color-mix(in srgb, var(--s-card, #fffdf8) 82%, transparent);
+  border: 1px solid var(--s-border);
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+  pointer-events: none;
+}
+.viewer-hint b { color: var(--s-accent-text, #7d5f2c); font-weight: 700; }
+[data-theme="dark"] .viewer-hint b { color: var(--s-accent); }
+
+/* ============================================================
+   PRINT BOUNDARY — khung giới hạn di chuyển (ảnh luôn nguyên vẹn)
+   Khung vàng nét đứt = nơi TÂM ảnh được phép tới; mép khung = mép
+   ảnh sẽ chạm đúng mép vùng in → không bao giờ bị khuất.
+   ============================================================ */
+.print-boundary {
+  position: absolute;
+  pointer-events: none;
+  z-index: 38;
+  border: 1.5px dashed var(--s-accent, #a37c3a);
+  border-radius: 10px;
+  background: rgba(212, 175, 110, 0.045);
+  box-shadow: 0 0 0 1px rgba(212, 175, 110, 0.12) inset;
+  opacity: 0;
+  transform: scale(0.97);
+  transition: opacity 0.15s var(--s-ease, ease), transform 0.15s var(--s-ease, ease);
+}
+.print-boundary.active { opacity: 1; transform: scale(1); }
+/* Nhãn góc khung "VÙNG DI CHUYỂN" */
+.print-boundary::after {
+  content: 'VÙNG DI CHUYỂN';
+  position: absolute;
+  top: -9px; left: 10px;
+  padding: 0 6px;
+  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-size: 0.56rem;
+  letter-spacing: 0.16em;
+  color: var(--s-accent-text, #7d5f2c);
+  background: var(--s-card, #fffdf8);
+  border-radius: 4px;
+}
+[data-theme="dark"] .print-boundary::after { color: var(--s-accent); background: var(--s-card, #211d16); }
+/* HUD trạng thái chạm biên — viền cảnh báo amber đậm */
+.drag-hud.at-limit {
+  color: #8a5a10;
+  border-color: #d97706;
+  background: rgba(254, 243, 199, 0.92);
+}
+[data-theme="dark"] .drag-hud.at-limit { color: #fbbf24; background: rgba(69, 46, 8, 0.9); }
+.drag-hud.at-limit::before { content: '⤢ '; }
+
+/* ============================================================
+   BOUNDARY 2.0 — khung pixel-perfect + góc monitor + ghost ảnh biên
+   ============================================================ */
+.print-boundary {
+  position: absolute;
+  pointer-events: none;
+  z-index: 38;
+  border: 1px dashed rgba(163, 124, 58, 0.55);
+  border-radius: 10px;
+  background: transparent; /* khung gọn — góc monitor là chính */
+  opacity: 0;
+  transform: scale(0.98);
+  transition: opacity 0.14s var(--s-ease, ease), transform 0.14s var(--s-ease, ease);
+}
+.print-boundary.active { opacity: 1; transform: scale(1); }
+/* 4 góc monitor kiểu viewfinder — đánh dấu giới hạn sắc nét */
+.pb-corner {
+  position: absolute;
+  width: 14px; height: 14px;
+  border-color: var(--s-accent, #a37c3a);
+  border-style: solid;
+  border-width: 0;
+}
+.pb-corner.tl { top: -1.5px; left: -1.5px; border-top-width: 2.5px; border-left-width: 2.5px; border-top-left-radius: 10px; }
+.pb-corner.tr { top: -1.5px; right: -1.5px; border-top-width: 2.5px; border-right-width: 2.5px; border-top-right-radius: 10px; }
+.pb-corner.bl { bottom: -1.5px; left: -1.5px; border-bottom-width: 2.5px; border-left-width: 2.5px; border-bottom-left-radius: 10px; }
+.pb-corner.br { bottom: -1.5px; right: -1.5px; border-bottom-width: 2.5px; border-right-width: 2.5px; border-bottom-right-radius: 10px; }
+.print-boundary::after {
+  content: 'VÙNG DI CHUYỂN';
+  position: absolute;
+  top: -9px; left: 24px;
+  padding: 0 6px;
+  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-size: 0.56rem;
+  letter-spacing: 0.16em;
+  color: var(--s-accent-text, #7d5f2c);
+  background: var(--s-card, #fffdf8);
+  border-radius: 4px;
+}
+[data-theme="dark"] .print-boundary::after { color: var(--s-accent); background: var(--s-card, #211d16); }
+/* Ghost ảnh ở biên: bản-sao mờ vàng — xem trước nơi ảnh sẽ dừng */
+.boundary-ghost {
+  position: absolute;
+  z-index: 37;
+  pointer-events: none;
+  opacity: 0;
+  filter: sepia(0.4) saturate(0.8) opacity(0.45);
+  outline: 1.5px dashed var(--s-accent, #a37c3a);
+  outline-offset: 2px;
+  border-radius: 4px;
+  transition: opacity 0.12s var(--s-ease, ease);
+}
+.boundary-ghost.active { opacity: 1; }
+/* HUD overflow (vượt khung in chủ ý) — xanh dương nhẹ khác at-limit amber */
+.drag-hud.overflow {
+  color: #3d5a80;
+  border-color: #4f6a8a;
+  background: rgba(219, 234, 254, 0.92);
+}
+[data-theme="dark"] .drag-hud.overflow { color: #93c5fd; background: rgba(23, 37, 60, 0.9); }
+.drag-hud.overflow::before { content: '◇ '; }
+
+/* Align tools pro — hàng nút phân bố/xếp hàng trong layer section */
+.align-tools {
+  display: flex;
+  gap: 5px;
+  padding: 6px 0 2px;
+  flex-wrap: wrap;
+}
+.align-tool-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 24px;
+  padding: 0 8px;
+  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  color: var(--s-text-muted);
+  background: var(--s-surface);
+  border: 1px solid var(--s-border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.14s var(--s-ease, ease);
+  white-space: nowrap;
+}
+.align-tool-btn:hover {
+  color: var(--s-accent-text, #7d5f2c);
+  border-color: var(--s-accent);
+  background: var(--s-accent-soft, rgba(163, 124, 58, 0.1));
+  transform: translateY(-1px);
+}
+[data-theme="dark"] .align-tool-btn:hover { color: var(--s-accent); }

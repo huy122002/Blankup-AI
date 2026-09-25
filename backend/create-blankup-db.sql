@@ -402,7 +402,12 @@ IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_AiCreditLedg
 IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_AiCreditLedger_quality')
   ALTER TABLE dbo.AiCreditLedger ADD CONSTRAINT CK_AiCreditLedger_quality CHECK (quality IN (N'low', N'high'));
 IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_VerificationCodes_type')
-  ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT CK_VerificationCodes_type CHECK (type IN (N'email', N'phone'));
+  ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT CK_VerificationCodes_type CHECK (type IN (N'email', N'phone', N'password_reset'));
+IF EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_VerificationCodes_type' AND definition NOT LIKE '%password_reset%')
+  BEGIN
+    ALTER TABLE dbo.VerificationCodes DROP CONSTRAINT CK_VerificationCodes_type;
+    ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT CK_VerificationCodes_type CHECK (type IN (N'email', N'phone', N'password_reset'));
+  END
 IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Orders_paymentStatus')
   ALTER TABLE dbo.Orders ADD CONSTRAINT CK_Orders_paymentStatus CHECK (paymentStatus IS NULL OR paymentStatus IN (N'pending', N'paid', N'failed', N'awaiting_transfer', N'underpaid'));
 IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Orders_finalPrice')

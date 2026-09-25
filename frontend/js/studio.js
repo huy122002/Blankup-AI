@@ -98,6 +98,31 @@ function syncPressed(containerId, selector, activeEl) {
 /* ============================================================
    STATE
    ============================================================ */
+/* ============================================================
+   TEXT STYLE — slogan/câu chữ có bộ điều chỉnh kiểu in thật:
+   viết hoa, font, độ đậm, màu, nghiêng/gạch chân/viền, giãn chữ.
+   Fonts khớp bộ self-hosted tokens.css (+ system display fonts) —
+   KHÔNG dùng font không tồn tại (bug cũ: 'Outfit' fallback Arial).
+   ============================================================ */
+const DEFAULT_TEXT_STYLE = {
+  font: 'display',     // TEXT_FONTS key
+  weight: 900,         // 400 | 700 | 900 (cap theo font)
+  color: '#111827',
+  transform: 'upper',  // upper | lower | title | none
+  italic: false,
+  underline: false,
+  stroke: true,        // viền trắng quanh chữ — chữ nổi trên nền tối
+  spacing: 0,          // giãn chữ, % cỡ chữ (0–30)
+};
+const TEXT_FONTS = {
+  display: { stack: "'Arial Black', Arial, sans-serif", weightCap: 900, label: 'Display · Arial Black' },
+  poster:  { stack: "Impact, 'Arial Narrow', Arial, sans-serif", weightCap: 400, label: 'Poster · Impact' },
+  serif:   { stack: "'Playfair Display', Georgia, serif", weightCap: 600, label: 'Serif · Playfair' },
+  sans:    { stack: "Manrope, Arial, sans-serif", weightCap: 700, label: 'Sans · Manrope' },
+  mono:    { stack: "'DM Mono', 'Courier New', monospace", weightCap: 500, label: 'Mono · DM Mono' },
+  classic: { stack: "Georgia, 'Times New Roman', serif", weightCap: 700, label: 'Classic · Georgia' },
+};
+
 const state = {
   currentDesign: null,
   selectedProductType: 'tshirt',
@@ -129,6 +154,9 @@ const state = {
   activePlacementLayer: 'image',
   isGeneratingAi: false,
   customTextSides: { front: '', back: '' },
+  // Kiểu chữ per side (slogan) — getSideTextStyle merge DEFAULT_TEXT_STYLE.
+  textStyle: { ...DEFAULT_TEXT_STYLE },
+  sideTextStyle: { front: null, back: null },
   // Per-side AI prompts — "mặt trước/mặt sau có prompt riêng".
   // promptInput mirrors the CURRENT side's prompt; switching sides swaps text.
   sidePrompts: { front: '', back: '' },
@@ -179,8 +207,24 @@ function getSideTextPlacement(side = state.currentView) {
   if (stored) return stored;
   return { x: 0, y: k === 'back' ? 16 : 18, scale: 1 };
 }
+/* Kiểu chữ per side — stored chỉ lưu các field người dùng đã chạm
+   (merge DEFAULT để tương thích dữ liệu cũ). */
+function getSideTextStyle(side = state.currentView) {
+  const k = sideKey(side);
+  return { ...DEFAULT_TEXT_STYLE, ...(state.sideTextStyle?.[k] || {}) };
+}
+function commitSideTextStyle(patch) {
+  const k = sideKey();
+  state.sideTextStyle[k] = { ...getSideTextStyle(k), ...patch };
+  state.textStyle = { ...state.sideTextStyle[k] };
+  state.compositeCacheKey = '';
+}
 function commitActivePlacements() {
   const k = sideKey();
+  // Central chokepoint: mọi đường chỉnh vị trí (kéo overlay, kéo canvas,
+  // slider, nudge, preset) đều đi qua đây → clamp layer vào vùng in áo.
+  const sel = getSelectedLayer(k);
+  if (sel) clampLayerToPrintArea(sel);
   state.sidePrintPlacement[k] = { ...state.printPlacement };
   state.sideTextPlacement[k] = { ...state.textPlacement };
   state.compositeCacheKey = '';
@@ -188,6 +232,8 @@ function commitActivePlacements() {
 function loadPlacementsForSide(side) {
   state.printPlacement = { ...getSidePrintPlacement(side) };
   state.textPlacement = { ...getSideTextPlacement(side) };
+  state.textStyle = { ...getSideTextStyle(side) };
+  syncTextStyleControls();
 }
 function syncCustomTextInputs() {
   const v = getSideCustomText();
@@ -205,6 +251,10 @@ function updateSideBadge() {
     const back = state.currentView === 'back';
     tag.textContent = back ? 'mặt sau' : 'mặt trước';
     tag.classList.toggle('is-back', back);
+  }
+  const stickerTag = document.getElementById('stickerSideTag');
+  if (stickerTag) {
+    stickerTag.textContent = state.currentView === 'back' ? 'mặt sau' : 'mặt trước';
   }
 }
 function updateBackDesignControls() {
@@ -242,7 +292,21 @@ function getCompositeCacheKey() {
     front: snap('front'), back: snap('back'),
     customText: state.customText, customTextSides: state.customTextSides,
     sideTextPlacement: state.sideTextPlacement,
+    sideTextStyle: state.sideTextStyle,
   });
+}
+
+/* Chuyển text theo transform: upper/lower/title/none + capitalize từng từ.
+   Dùng chung overlay 2D + composite 3D/đơn hàng — hiển thị == bản in. */
+function applyTextTransform(text, transform) {
+  const raw = String(text || '');
+  switch (transform) {
+    case 'upper': return raw.toUpperCase();
+    case 'lower': return raw.toLowerCase();
+    case 'title': return raw.toLowerCase().replace(new RegExp('(^|\\s|[-—–])(\\p{L})', 'gu'), (m, p, c) => p + c.toUpperCase());
+    case 'capitalize': return raw.replace(new RegExp('(^|\\s)(\\p{L})', 'gu'), (m, p, c) => p + c.toUpperCase());
+    default: return raw;
+  }
 }
 
 // Debounced 3D refresh: slider drags rebuild the composite live in 2D, but
@@ -254,6 +318,25 @@ function scheduleViewerUpdate() {
     viewerUpdateTimer = null;
     applyCurrentDesignToViewer().catch(() => {});
   }, 350);
+}
+
+// Throttle (KHÔNG phải debounce) cho kéo slider: debounce reset timer mỗi
+// event → kéo liên tục thì decal KHÔNG BAO GIỜ cập nhật (cảm giác 'slider
+// không hoạt động'). Throttle đảm bảo decal sống lại đều đặn khi kéo.
+let sliderViewerTick = 0;
+function scheduleViewerUpdateThrottled(minInterval = 140) {
+  const now = Date.now();
+  if (now - sliderViewerTick >= minInterval) {
+    sliderViewerTick = now;
+    if (viewerUpdateTimer) { clearTimeout(viewerUpdateTimer); viewerUpdateTimer = null; }
+    applyCurrentDesignToViewer().catch(() => {});
+  } else if (!viewerUpdateTimer) {
+    viewerUpdateTimer = setTimeout(() => {
+      viewerUpdateTimer = null;
+      sliderViewerTick = Date.now();
+      applyCurrentDesignToViewer().catch(() => {});
+    }, minInterval - (now - sliderViewerTick));
+  }
 }
 
 /* ============================================================
@@ -548,17 +631,49 @@ async function buildSideComposite(side = state.currentView) {
     await drawLayerOnContext(ctx, size, layer);
   }
   if (sideText) {
-    const tp = getSideTextPlacement(k);
-    const text = sideText.toUpperCase();
-    const fs = Math.max(34, 82 * tp.scale);
-    const x = size * (0.5 + tp.x / 100), y = size * (0.5 + tp.y / 100);
-    ctx.font = `900 ${fs}px Outfit, Arial, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.lineWidth = Math.max(6, fs * 0.12);
-    ctx.strokeStyle = 'rgba(255,255,255,0.94)'; ctx.fillStyle = '#111827';
-    ctx.strokeText(text, x, y); ctx.fillText(text, x, y);
+    drawStyledText(ctx, size, sideText, getSideTextPlacement(k), getSideTextStyle(k));
   }
   return canvas.toDataURL('image/png');
+}
+
+/* Vẽ slogan theo đúng style người dùng chọn — DÙNG CHO CẢ composite đơn
+   hàng lẫn preview, nên "nhìn thấy gì in nấy". Weight cap theo font
+   (Playfair chỉ có 500/600; DM Mono 400/500) để canvas không giả lập đậm ảo. */
+function drawStyledText(ctx, size, rawText, tp, style) {
+  const st = { ...DEFAULT_TEXT_STYLE, ...(style || {}) };
+  const fontDef = TEXT_FONTS[st.font] || TEXT_FONTS.display;
+  const weight = Math.min(st.weight, fontDef.weightCap);
+  const text = applyTextTransform(rawText, st.transform);
+  if (!text) return;
+  const fs = Math.max(34, 82 * tp.scale);
+  const x = size * (0.5 + tp.x / 100), y = size * (0.5 + tp.y / 100);
+  ctx.save();
+  ctx.font = `${st.italic ? 'italic ' : ''}${weight} ${fs}px ${fontDef.stack}`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.letterSpacing = `${Math.round(fs * (st.spacing || 0) / 100)}px`;
+  // Ink stroke: viền nền áo quanh chữ giúp chữ nổi trên mọi màu áo
+  ctx.lineWidth = st.stroke ? Math.max(5, fs * 0.11) : 0;
+  ctx.lineJoin = 'round'; ctx.miterLimit = 2;
+  ctx.strokeStyle = st.stroke ? getInkContrast(st.color) : 'transparent';
+  ctx.fillStyle = st.color;
+  if (ctx.lineWidth > 0) ctx.strokeText(text, x, y);
+  ctx.fillText(text, x, y);
+  if (st.underline) {
+    const m = ctx.measureText(text);
+    ctx.fillRect(x - m.width / 2, y + fs * 0.52, m.width, Math.max(3, fs * 0.06));
+  }
+  ctx.restore();
+}
+
+/* Viền tương phản theo màu chữ: chữ sáng viền ink, chữ tối viền trắng.
+   Giữ chữ đọc được trên cả áo trắng lẫn áo đen. */
+function getInkContrast(colorHex) {
+  try {
+    const h = String(colorHex || '#111827').replace('#', '');
+    const n = h.length === 3 ? h.split('').map(c => c + c).join('') : h;
+    const r = parseInt(n.slice(0, 2), 16), g = parseInt(n.slice(2, 4), 16), b = parseInt(n.slice(4, 6), 16);
+    return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 140 ? '#101418' : 'rgba(255,255,255,0.95)';
+  } catch (e) { return '#ffffff'; }
 }
 
 async function buildCompositePrintUrl(designUrl, side = state.currentView) {
@@ -574,11 +689,7 @@ async function buildCompositePrintUrl(designUrl, side = state.currentView) {
   const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, size, size);
   await drawLayerOnContext(ctx, size, { url: designUrl, x: 0, y: -12, scale: 1, rotation: 0 });
   if (sideText) {
-    const tp = getSideTextPlacement(k);
-    ctx.font = `900 ${Math.max(34, 82 * tp.scale)}px Outfit, Arial, sans-serif`;
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#111827';
-    ctx.fillText(sideText.toUpperCase(), size * (0.5 + tp.x / 100), size * (0.5 + tp.y / 100));
+    drawStyledText(ctx, size, sideText, getSideTextPlacement(k), getSideTextStyle(k));
   }
   return canvas.toDataURL('image/png');
 }
@@ -602,6 +713,83 @@ function updateDesignOverlayForSide() {
   renderLayersOverlay();
 }
 
+/* ============================================================
+   DRAG PREVIEW — ảnh clone RIÊNG bám con trỏ 1:1 ở screen-space.
+   Vì sao cần phần tử riêng: (1) overlay img bị renderLayersOverlay tái tạo
+   mỗi pointermove nên không giữ được trạng thái; (2) ở chế độ 3D overlay
+   bị ẩn/0-size nên preview qua overlay là vô hình (lỗi "kéo là ảnh biến
+   mất"). Preview = <img> gắn vào body, vị trí = vị trí ban đầu + delta
+   chuột → kéo tới đâu THẤY tới đó. Thả chuột: đợi decal mới dựng xong
+   (atomic swap + onDecalSwap) mới gỡ preview → không nháy, không trống.
+   ============================================================ */
+function beginLayerDragPreview(src, rect, startX, startY, scale = 1, opts = {}) {
+  endLayerDragPreview(true); // dọn preview cũ nếu còn sót
+  const container = document.getElementById('canvasViewer');
+  if (container) container.classList.add('is-layer-dragging');
+  try { window.tshirt360Viewer?.setDecalsHidden?.(true); } catch (e) { /* */ }
+  if (!src) return;
+  // KÍCH THƯỚC preview = kích thước decal THẬT trên màn hình (project 3D →
+  // pixel qua camera). LƯU Ý QUAN TRỌNG: decal 3D hiển thị TOÀN BỘ composite
+  // 1024px (mọi layer gộp lại), còn TỪNG layer chỉ chiếm 58% bề rộng
+  // composite × scale — thiếu phép nhân này là nguồn gốc ảnh bị phóng to
+  // bằng cả mặt in khi vừa nhấn kéo, thả ra mới co về. Ưu tiên: decal thật
+  // > rect overlay hiển thị > ước lượng cuối cùng.
+  let w = 0;
+  // ratio: tỉ lệ bề rộng thực của nội dung trong composite (layer ảnh = 0.58;
+  // chữ ngắn hơn nên ~0.4 — thiếu hiệu chỉnh này preview chữ to quá).
+  const contentRatio = opts.ratio || 0.58;
+  try {
+    const dw = Math.round(window.tshirt360Viewer?.getDecalScreenWidth?.(state.currentView) || 0);
+    if (dw > 0) w = Math.max(40, Math.round(dw * contentRatio * (scale || 1)));
+  } catch (e) { w = 0; }
+  const rectUsable = !!(rect && rect.width > 4);
+  if (!w && rectUsable) w = Math.round(rect.width);
+  if (!w) w = Math.max(40, Math.round(contentRatio * (scale || 1) * 0.30 * (container?.clientWidth || 800)));
+  const p = document.createElement('img');
+  p.src = src;
+  p.className = 'studio-drag-preview';
+  p.alt = '';
+  p.style.width = `${w}px`;
+  p.style.left = `${rectUsable ? rect.left : startX - w / 2}px`;
+  p.style.top = `${rectUsable ? rect.top : startY - w / 2}px`;
+  document.body.appendChild(p);
+  state.dragPreviewEl = p;
+  state.dragPreviewMeta = { left: parseInt(p.style.left, 10), top: parseInt(p.style.top, 10), startX, startY };
+}
+function moveLayerDragPreview(clientX, clientY) {
+  const p = state.dragPreviewEl;
+  const m = state.dragPreviewMeta;
+  if (!p || !m) return;
+  p.style.left = `${m.left + (clientX - m.startX)}px`;
+  p.style.top = `${m.top + (clientY - m.startY)}px`;
+}
+function endLayerDragPreview(immediate = false) {
+  const container = document.getElementById('canvasViewer');
+  const viewer3d = window.tshirt360Viewer;
+  const removePreview = () => {
+    state.dragPreviewEl?.remove();
+    state.dragPreviewEl = null;
+    state.dragPreviewMeta = null;
+    if (container) container.classList.remove('is-layer-dragging');
+  };
+  const unhideDecal = () => { try { viewer3d?.setDecalsHidden?.(false); } catch (e) { /* */ } };
+  if (immediate) { removePreview(); unhideDecal(); return; }
+  // Viewer 3D thật + atomic swap: dựng decal mới xong (onDecalSwap) rồi mới
+  // gỡ preview — hình ảnh liên tục tuyệt đối, không có khoảnh khắc trống.
+  if (viewer3d?.setDecalsHidden && document.querySelector('.has-real-3d')) {
+    let done = false;
+    const finish = () => { if (done) return; done = true; removePreview(); unhideDecal(); };
+    try {
+      viewer3d.onDecalSwap = finish; // 1-shot trong viewer
+      setTimeout(finish, 2500); // safety: lỗi texture vẫn phải tắt preview
+      Promise.resolve(applyCurrentDesignToViewer()).catch(() => {});
+      setTimeout(() => { if (!done && !viewer3d.getDecalInfo?.().count) finish(); }, 400);
+    } catch (e) { finish(); }
+    return;
+  }
+  removePreview(); unhideDecal();
+}
+
 function renderLayersOverlay() {
   const overlay = document.getElementById('mockupDesign');
   if (!overlay) return;
@@ -623,7 +811,8 @@ function renderLayersOverlay() {
     const isSel = selected && selected.id === l.id;
     const style = `left:0;top:0;width:46%;max-width:320px;transform:translate(calc(-50% + ${l.x}%), calc(-50% + ${l.y}%)) scale(${l.scale}) rotate(${l.rotation || 0}deg);z-index:${10 + l.z};cursor:pointer;${isSel ? 'outline:2px dashed var(--s-accent, #ff6b00);outline-offset:3px;' : ''}`;
     return `<img src="${escapeAttr(l.url)}" alt="${escapeAttr(l.name || 'Design')}" class="mockup-print-design" data-layer-id="${escapeAttr(l.id)}" draggable="false" style="${style}">`;
-  }).join('') + (activeText ? `<div class="mockup-print-text">${escapeHtml(activeText)}</div>` : '');
+  }).join('') + (activeText ? renderStyledTextOverlay(activeText) : '');
+  wireTextOverlayDrag(overlay);
   // Click-to-select + DIRECT DRAG-TO-MOVE on the layer itself.
   // Pixels→percent: layer x/y are % of overlay box; overlay center is (0,0).
   overlay.querySelectorAll('img[data-layer-id]').forEach(img => {
@@ -648,11 +837,17 @@ function renderLayersOverlay() {
       const ppx = 100 / refW;
       const ppy = 100 / refH;
       let moved = false;
+      let previewStarted = false;
       const onMove = (ev) => {
         const dx = (ev.clientX - startX) * ppx;
         const dy = (ev.clientY - startY) * ppy;
         if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 3) return;
-        moved = true;
+        if (!previewStarted) {
+          previewStarted = true;
+          moved = true;
+          beginLayerDragPreview(layer.url, layerBox, startX, startY, layer.scale);
+        }
+        moveLayerDragPreview(ev.clientX, ev.clientY);
         if (state.interactionMode === 'rotate') {
           // Rotate mode: drag spins the layer around its center (delta angle
           // from drag start, applied to the ORIGINAL rotation — no drift).
@@ -661,20 +856,30 @@ function renderLayersOverlay() {
           const ang = Math.atan2(ev.clientY - cy, ev.clientX - cx) * 180 / Math.PI;
           const ang0 = Math.atan2(startY - cy, startX - cx) * 180 / Math.PI;
           layer.rotation = clampNum(Math.round(origRot + (ang - ang0)), ...LAYER_BOUNDS.rotation);
+          updateDragHud({ extra: `${Math.round(layer.rotation)}°` });
         } else {
           layer.x = clampNum(origX + dx, ...LAYER_BOUNDS.x);
           layer.y = clampNum(origY + dy, ...LAYER_BOUNDS.y);
+          const sn = snapPlacement({ x: layer.x, y: layer.y }, { bypass: ev.altKey, siblings: siblingSnapTargets(side, layer.id), layer });
+          layer.x = sn.x; layer.y = sn.y;
+          updateDragHud({ x: layer.x, y: layer.y, snapLabel: sn.snapLabel, limitLabel: sn.limitLabel });
         }
         commitActivePlacements();
         syncPlacementInputs();
-        renderLayersOverlay();
+        // MƯỢT: trong lúc kéo CHỈ transform node hiện có (không rebuild DOM —
+        // renderLayersOverlay() tái tạo innerHTML mỗi pixel chuột là nguồn gốc
+        // giật/nháy trước đây). Rebuild đầy đủ khi thả chuột.
+        moveOverlayLayerNode(img, layer);
         scheduleViewerUpdate();
       };
       const onUp = () => {
         window.removeEventListener('pointermove', onMove);
         window.removeEventListener('pointerup', onUp);
         window.removeEventListener('pointercancel', onUp);
+        hideSnapGuides(); hideDragHud(); hidePrintBoundary();
         if (moved) {
+          endLayerDragPreview();
+          renderLayersOverlay(); // rebuild 1 lần khi thả — đồng bộ danh sách/z-index
           showToast(`Đã di chuyển: ${layer.name || 'mẫu'} (x:${Math.round(layer.x)} y:${Math.round(layer.y)}${state.interactionMode === 'rotate' ? ` · ${Math.round(layer.rotation)}°` : ''})`, 'info', 1600);
         } else {
           showToast(`Đang chỉnh: ${layer.name || ''}`, 'info', 1500);
@@ -690,12 +895,322 @@ function renderLayersOverlay() {
   renderLayerList();
 }
 
+/* Di chuyển node layer TRONG overlay bằng transform trực tiếp (không rebuild).
+   Cùng mapping với renderLayersOverlay: translate(calc(-50% + x%), ...) —
+   % tính theo kích thước chính ảnh layer. */
+function moveOverlayLayerNode(img, layer) {
+  if (!img || !layer) return;
+  img.style.transform = `translate(calc(-50% + ${layer.x}%), calc(-50% + ${layer.y}%)) scale(${layer.scale}) rotate(${layer.rotation || 0}deg)`;
+}
+
+/* ============================================================
+   SNAP ENGINE + HUD — nâng trải nghiệm đặt vị trí lên tầm pro:
+   • Snap dẫn hướng (không cứng): tâm ngang X=0, tâm dọc Y=0, căn cạnh
+     trên/dưới với layer khác. Vào vùng hút → giá trị chốt chính xác,
+     guide vàng sáng + HUD báo "ĐÃ CĂN GIỮA".
+   • Alt giữ khi kéo → tắt snap hoàn toàn (free placement).
+   • HUD chip cạnh con trỏ: x/y/° live từng frame.
+   ============================================================ */
+const SNAP_RADIUS = 2.2;      // % vị trí — vùng hút quanh vạch snap
+const SNAP_LINES = { x: [0], y: [0] }; // tâm ngang + tâm dọc
+
+function applySnaps(value, axis, otherValue, otherSnapTargets) {
+  // Trả về { value, snapped } — snapped = vạch đã hút (để vẽ guide).
+  const eps = SNAP_RADIUS;
+  for (const line of SNAP_LINES[axis]) {
+    if (Math.abs(value - line) <= eps) return { value: line, snapped: line };
+  }
+  if (Array.isArray(otherSnapTargets)) {
+    for (const t of otherSnapTargets) {
+      if (Math.abs(value - t) <= eps) return { value: t, snapped: t };
+    }
+  }
+  return { value, snapped: null };
+}
+
+/* Vạch snap targets từ layer KHÁC cùng mặt (căn trên/dưới/tâm-dọc với nhau) */
+function siblingSnapTargets(side, excludeLayerId) {
+  return sideLayers(side)
+    .filter(l => l.visible !== false && l.url && l.id !== excludeLayerId)
+    .map(l => ({ top: l.y, bottom: l.y, cx: l.x }));
+}
+
+let snapGuideEls = null;
+function ensureSnapGuides() {
+  if (snapGuideEls && document.contains(snapGuideEls.v)) return snapGuideEls;
+  const viewer = document.getElementById('canvasViewer');
+  if (!viewer) return null;
+  const v = document.createElement('div'); v.className = 'snap-guide snap-guide-v';
+  const h = document.createElement('div'); h.className = 'snap-guide snap-guide-h';
+  viewer.appendChild(v); viewer.appendChild(h);
+  snapGuideEls = { v, h };
+  return snapGuideEls;
+}
+function showSnapGuides({ x, y } = {}) {
+  const g = ensureSnapGuides();
+  if (!g) return;
+  // Guide vẽ trong hệ % của viewer (vạch tâm = 50%).
+  if (x != null) { g.v.style.left = `calc(50% + ${x * 0.5}%)`; g.v.classList.add('active'); }
+  else g.v.classList.remove('active');
+  if (y != null) { g.h.style.top = `calc(50% + ${y * 0.28}%)`; g.h.classList.add('active'); }
+  else g.h.classList.remove('active');
+}
+function hideSnapGuides() {
+  if (!snapGuideEls) return;
+  snapGuideEls.v.classList.remove('active');
+  snapGuideEls.h.classList.remove('active');
+}
+
+let hudEl = null;
+function ensureDragHud() {
+  if (hudEl && document.contains(hudEl)) return hudEl;
+  const viewer = document.getElementById('canvasViewer');
+  if (!viewer) return null;
+  hudEl = document.createElement('div');
+  hudEl.className = 'drag-hud';
+  viewer.appendChild(hudEl);
+  return hudEl;
+}
+function updateDragHud(obj) {
+  // obj: { x, y, extra, snapLabel, limitLabel } — vị trí % hiển thị live.
+  const hud = ensureDragHud();
+  if (!hud || !obj) return;
+  const parts = [];
+  if (obj.x != null) parts.push(`X ${Math.round(obj.x)}`);
+  if (obj.y != null) parts.push(`Y ${Math.round(obj.y)}`);
+  if (obj.extra) parts.push(obj.extra);
+  hud.textContent = parts.join('  ·  ');
+  hud.classList.toggle('snap-locked', !!obj.snapLabel);
+  hud.dataset.snap = obj.snapLabel || '';
+  // CHẠM GIỚI HẠN: ưu tiên hiển thị tên biên chạm (phải/vòng/trái/dưới)
+  hud.classList.toggle('at-limit', !!obj.limitLabel);
+  hud.dataset.limit = obj.limitLabel || '';
+  hud.classList.toggle('overflow', !!obj.overflow && !obj.limitLabel);
+  hud.dataset.overflow = obj.overflow ? 'VƯỢT KHUNG IN — VẪN IN ĐƯỢC' : '';
+  hud.classList.add('active');
+}
+function hideDragHud() {
+  if (hudEl) hudEl.classList.remove('active', 'snap-locked', 'at-limit');
+}
+
+/* KHUNG GIỚI HẠN — hiện vùng di chuyển TỐI ĐA của ảnh đang kéo.
+   Là khung vàng nét đứt trong viewer, kích thước = nơi mép ảnh có thể tới.
+   Người dùng nhìn thấy ngay: "đây là giới hạn, ảnh sẽ luôn nguyên vẹn". */
+let boundaryEl = null;
+let boundaryGhostEl = null;
+function showPrintBoundary(layer) {
+  const viewer = document.getElementById('canvasViewer');
+  if (!viewer) return;
+  if (!boundaryEl || !document.contains(boundaryEl)) {
+    boundaryEl = document.createElement('div');
+    boundaryEl.className = 'print-boundary';
+    boundaryEl.innerHTML = '<span class="pb-corner tl"></span><span class="pb-corner tr"></span><span class="pb-corner bl"></span><span class="pb-corner br"></span>';
+    viewer.appendChild(boundaryEl);
+  }
+  const lim = layerPrintLimits(layer);
+  // BOUNDARY KHỚP PIXEL 3D: dùng project thật của 4 góc vùng di chuyển tâm
+  // (screenPosFromPrintPoint) thay vì công thức ước lượng — khung chính xác
+  // tuyệt đối với góc nhìn hiện tại của áo (kể cả khi áo đã xoay).
+  let x0 = null, y0 = null, x1 = null, y1 = null;
+  try {
+    const pts = [
+      window.tshirt360Viewer?.screenPosFromPrintPoint?.(lim.minX, lim.minY, state.currentView),
+      window.tshirt360Viewer?.screenPosFromPrintPoint?.(lim.maxX, lim.maxY, state.currentView),
+    ].filter(Boolean);
+    if (pts.length === 2) {
+      x0 = Math.min(pts[0].x, pts[1].x); x1 = Math.max(pts[0].x, pts[1].x);
+      y0 = Math.min(pts[0].y, pts[1].y); y1 = Math.max(pts[0].y, pts[1].y);
+    }
+  } catch (e) { /* fallback dưới */ }
+  if (x0 == null) {
+    // Fallback công thức cũ nếu 3D chưa sẵn sàng.
+    const w = (lim.maxX - lim.minX) * 0.58;
+    const h = (lim.maxY - lim.minY) * 0.58 * (viewer.clientWidth ? viewer.clientWidth / (viewer.clientHeight || 1) * 0.7 : 1);
+    const cx = (lim.minX + lim.maxX) / 2;
+    const cy = (lim.minY + lim.maxY) / 2;
+    boundaryEl.style.width = `${Math.max(8, Math.min(96, w))}%`;
+    boundaryEl.style.height = `${Math.max(8, Math.min(92, h))}%`;
+    boundaryEl.style.left = `calc(50% + ${cx * 0.29}%)`;
+    boundaryEl.style.top = `calc(44% + ${cy * 0.29}%)`;
+  } else {
+    const vr = viewer.getBoundingClientRect();
+    boundaryEl.style.left = `${x0 - vr.left}px`;
+    boundaryEl.style.top = `${y0 - vr.top}px`;
+    boundaryEl.style.width = `${Math.max(20, x1 - x0)}px`;
+    boundaryEl.style.height = `${Math.max(20, y1 - y0)}px`;
+  }
+  boundaryEl.classList.add('active');
+  // GHOST ẢNH Ở BIÊN: bản-sao mờ của ảnh đặt tại giới hạn gần chuột nhất —
+  // người dùng THẤY TRƯỚC ảnh sẽ nằm đâu khi đẩy tới giới hạn.
+  if (layer && layer.url && !boundaryGhostEl) {
+    boundaryGhostEl = document.createElement('img');
+    boundaryGhostEl.className = 'boundary-ghost';
+    boundaryGhostEl.alt = '';
+    boundaryGhostEl.draggable = false;
+    boundaryGhostEl.src = layer.url;
+    viewer.appendChild(boundaryGhostEl);
+  }
+  if (boundaryGhostEl && layer) {
+    const limW = Math.round((window.tshirt360Viewer?.getDecalScreenWidth?.(state.currentView) || 300) * 0.58 * (layer.scale || 1));
+    boundaryGhostEl.style.width = `${Math.max(30, limW)}px`;
+  }
+}
+/* Đặt ghost ảnh ở điểm biên GẦN vị trí kéo hiện tại (theo từng trục).
+   Hiện khi VƯỚT hoặc ĐẦM CHẶT biên (eps 0.5) — preview nơi ảnh sẽ dừng. */
+function moveBoundaryGhost(layer, x, y) {
+  if (!boundaryGhostEl || !layer) return;
+  const lim = layerPrintLimits(layer);
+  const eps = 0.5;
+  const nearMax = (v, max) => v > max || Math.abs(v - max) < eps;
+  const nearMin = (v, min) => v < min || Math.abs(v - min) < eps;
+  const gx = nearMax(x, lim.maxX) ? lim.maxX : nearMin(x, lim.minX) ? lim.minX : null;
+  const gy = nearMax(y, lim.maxY) ? lim.maxY : nearMin(y, lim.minY) ? lim.minY : null;
+  if (gx == null && gy == null) { boundaryGhostEl.classList.remove('active'); return; }
+  const px = window.tshirt360Viewer?.screenPosFromPrintPoint?.(
+    gx != null ? gx : x,
+    gy != null ? gy : y,
+    state.currentView
+  );
+  if (!px) { boundaryGhostEl.classList.remove('active'); return; }
+  const viewer = document.getElementById('canvasViewer');
+  const vr = viewer.getBoundingClientRect();
+  boundaryGhostEl.style.left = `${px.x - vr.left - boundaryGhostEl.offsetWidth / 2}px`;
+  boundaryGhostEl.style.top = `${px.y - vr.top - boundaryGhostEl.offsetHeight / 2}px`;
+  boundaryGhostEl.classList.add('active');
+}
+function hidePrintBoundary() {
+  if (boundaryEl) boundaryEl.classList.remove('active');
+  if (boundaryGhostEl) { boundaryGhostEl.classList.remove('active'); }
+}
+
+/* Kiểm tra chạm biên sau clamp — trả về tên biên để HUD báo rõ. */
+function limitLabel(x, y, lim) {
+  const eps = 0.51;
+  const labels = [];
+  if (Math.abs(x - lim.maxX) < eps) labels.push('GIỚI HẠN PHẢI');
+  else if (Math.abs(x - lim.minX) < eps) labels.push('GIỚI HẠN TRÁI');
+  if (Math.abs(y - lim.maxY) < eps) labels.push('GIỚI HẠN DƯỚI');
+  else if (Math.abs(y - lim.minY) < eps) labels.push('GIỚI HẠN TRÊN');
+  return labels.join(' + ');
+}
+
+/* Snap + guide + BOUNDARY chung cho mọi đường kéo (overlay/canvas, ảnh/chữ).
+   Trả về vị trí đã snap/clamp + nhãn snap/limit để HUD hiển thị rõ. */
+function snapPlacement(pos, opts = {}) {
+  const bypass = opts.bypass === true; // Alt giữ → free
+  const layer = opts.layer || null;
+  // 1. CLAMP NGUYÊN VẸN TRƯỚC — ảnh không bao giờ khuất, bất kể Alt.
+  let clamped = { x: pos.x, y: pos.y };
+  let lim = null;
+  if (layer) {
+    lim = layerPrintLimits(layer);
+    clamped.x = clampNum(pos.x, lim.minX, lim.maxX);
+    clamped.y = clampNum(pos.y, lim.minY, lim.maxY);
+  }
+  // 2. Boundary frame luôn hiện trong lúc kéo → người dùng thấy giới hạn.
+  if (layer) showPrintBoundary(layer);
+  if (bypass) {
+    showSnapGuides({});
+    const ll = lim ? limitLabel(clamped.x, clamped.y, lim) : '';
+    if (layer) moveBoundaryGhost(layer, clamped.x, clamped.y);
+    return { x: clamped.x, y: clamped.y, snapLabel: '', limitLabel: ll, snappedX: null, snappedY: null };
+  }
+  const sib = opts.siblings || [];
+  const sx = applySnaps(clamped.x, 'x', clamped.y, sib.map(s => s.cx));
+  const sy = applySnaps(clamped.y, 'y', clamped.x, [...sib.map(s => s.top), ...sib.map(s => s.bottom)]);
+  showSnapGuides({ x: sx.snapped, y: sy.snapped });
+  if (layer) moveBoundaryGhost(layer, sx.value, sy.value);
+  const label = [];
+  if (sx.snapped === 0) label.push('CĂN GIỮA NGANG');
+  if (sy.snapped === 0) label.push('CĂN GIỮA DỌC');
+  const ll = lim ? limitLabel(sx.value, sy.value, lim) : '';
+  // SOFT-WARN: ảnh tràn khung composite (chủ ý full-print) vẫn in được trên
+  // decal plane — HUD báo nhẹ để người dùng biết đang dùng vùng mở rộng.
+  const overflow = lim && lim.soft && (Math.abs(sx.value) + lim.half > 50 || sy.value - lim.half < -44 || sy.value + lim.half > 56);
+  return { x: sx.value, y: sy.value, snapLabel: label.join(' + '), limitLabel: ll, overflow, snappedX: sx.snapped, snappedY: sy.snapped };
+}
+
+/* Slogan overlay theo đúng style (font/case/màu/đậm/viền/giãn) — cùng công
+   thức vẽ với composite nên overlay 2D == bản in 3D == đơn hàng. */
+function renderStyledTextOverlay(rawText) {
+  const st = getSideTextStyle();
+  const def = TEXT_FONTS[st.font] || TEXT_FONTS.display;
+  const weight = Math.min(st.weight, def.weightCap);
+  const text = applyTextTransform(rawText, st.transform);
+  const tp = getSideTextPlacement();
+  const fs = Math.max(34, 82 * tp.scale); // khớp drawStyledText (px trên composite 1024 → quy đổi % qua text-scale var)
+  // Viền 4 hướng + halo mềm — chữ nổi rõ trên mọi màu áo, tắt được.
+  const ink = st.stroke ? getInkContrast(st.color) : '';
+  const stroke = st.stroke
+    ? `text-shadow: 1px 1px 0 ${ink}, -1px 1px 0 ${ink}, 1px -1px 0 ${ink}, -1px -1px 0 ${ink}, 0 0 3px ${ink}, 0 3px 8px rgba(0,0,0,0.28);`
+    : 'text-shadow: none;';
+  const deco = `${st.italic ? ' font-style:italic;' : ''}${st.underline ? ' text-decoration:underline;' : ''}`;
+  return `<div class="mockup-print-text" data-text-drag="1" style="font-family:${def.stack};font-weight:${weight};color:${escapeAttr(st.color)};letter-spacing:${(st.spacing || 0) / 100}em;text-transform:none;${stroke}${deco}">${escapeHtml(text)}</div>`;
+}
+
+/* Kéo chữ TRỰC TIẾP trên overlay (như layer ảnh): pointerdown trên
+   .mockup-print-text → di chuyển textPlacement. Preview = ảnh chữ
+   screen-space (cùng đường beginLayerDragPreview). */
+function wireTextOverlayDrag(overlay) {
+  const el = overlay.querySelector('.mockup-print-text[data-text-drag]');
+  if (!el) return;
+  el.style.pointerEvents = 'auto';
+  el.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setActivePlacementLayer('text');
+    const box = el.getBoundingClientRect();
+    const startX = e.clientX, startY = e.clientY;
+    const origX = getSideTextPlacement().x, origY = getSideTextPlacement().y;
+    const refW = Math.max(1, box.width || 1), refH = Math.max(1, box.height || 1);
+    const ppx = 100 / refW, ppy = 100 / refH;
+    let moved = false, previewStarted = false;
+    const onMove = (ev) => {
+      if (!moved && Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) < 3) return;
+      if (!previewStarted) {
+        previewStarted = true; moved = true;
+        beginLayerDragPreview(buildTextDragPreviewUrl(), box, startX, startY, getSideTextPlacement().scale, { ratio: 0.4 });
+      }
+      moveLayerDragPreview(ev.clientX, ev.clientY);
+      // GHI VÀO BUFFER HOẠT ĐỘNG state.textPlacement — commitActivePlacements
+      // copy buffer này sang sideTextPlacement; ghi thẳng side trước đây bị
+      // commit ghi đè ngược về 0 mỗi move (drag chữ đứng yên).
+      state.textPlacement.x = clampNum(origX + (ev.clientX - startX) * ppx, ...TEXT_BOUNDS.x);
+      state.textPlacement.y = clampNum(origY + (ev.clientY - startY) * ppy, ...TEXT_BOUNDS.y);
+      const sn = snapPlacement({ x: state.textPlacement.x, y: state.textPlacement.y }, { bypass: ev.altKey, siblings: siblingSnapTargets(sideKey(), null), layer: { scale: state.textPlacement.scale, ratio: 0.4 } });
+      state.textPlacement.x = sn.x; state.textPlacement.y = sn.y;
+      updateDragHud({ x: state.textPlacement.x, y: state.textPlacement.y, snapLabel: sn.snapLabel, limitLabel: sn.limitLabel });
+      commitActivePlacements();
+      syncPlacementInputs();
+      scheduleViewerUpdate();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      hideSnapGuides(); hideDragHud(); hidePrintBoundary();
+      if (moved) {
+        endLayerDragPreview();
+        renderLayersOverlay();
+        showToast(`Đã di chuyển chữ (x:${Math.round(getSideTextPlacement().x)} y:${Math.round(getSideTextPlacement().y)})`, 'info', 1500);
+      }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
+}
+
+
 function renderLayerList() {
   const list = document.getElementById('layerList');
   const countTag = document.getElementById('layerCountTag');
   if (!list) return;
   const side = state.currentView;
   const layers = [...sideLayers(side)].sort((a, b) => b.z - a.z);
+  // Align tools chỉ có nghĩa khi ≥2 mẫu hiển thị
+  const alignTools = document.getElementById('alignTools');
+  if (alignTools) alignTools.style.display = layers.filter(l => l.visible !== false && l.url).length >= 2 ? 'flex' : 'none';
   if (countTag) countTag.textContent = layers.length ? `${layers.length} mẫu · ${side === 'back' ? 'mặt sau' : 'mặt trước'}` : '';
   if (!layers.length) {
     list.innerHTML = `<div class="layer-empty">Chưa có mẫu nào ở mặt này. Hãy tạo thiết kế rồi chọn “Thêm vào áo”.</div>`;
@@ -1730,7 +2245,7 @@ function renderHistory() {
             clearSideLayers(side);
             (entry.layers[side] || []).forEach((l) => {
               const added = addLayer(side, { url: l.url, name: l.name, designId: l.designId, prompt: l.prompt, style: l.style });
-              if (added) Object.assign(added, { x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0, visible: l.visible !== false, z: l.z });
+              if (added) { Object.assign(added, { x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0, visible: l.visible !== false, z: l.z }); clampLayerToPrintArea(added); }
             });
           }
           await refreshSideViews();
@@ -2122,6 +2637,33 @@ function syncPlacementInputs() {
   set('textPosX', Math.round(state.textPlacement.x));
   set('textPosY', Math.round(state.textPlacement.y));
   set('textScale', Math.round(state.textPlacement.scale * 100));
+  paintSliderFills();
+}
+
+/* Track fill % cho mọi slider vị trí — xuất phát từ CSS var --fill mà CSS mới đọc.
+   Gọi trong syncPlacementInputs (mọi mutation đều đi qua đây) + lúc init. */
+function paintSliderFills() {
+  ['printPosX', 'printPosY', 'printScale', 'printRotation', 'textPosX', 'textPosY', 'textScale', 'textSpacing'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const min = Number(el.min) || 0;
+    const max = Number(el.max) || 100;
+    const val = Number(el.value) || 0;
+    const pct = Math.max(0, Math.min(100, ((val - min) / (max - min)) * 100));
+    if (el.classList.contains('center-origin')) {
+      // Trục X/Y: fill tỏa từ giữa — nửa vạch gold quanh mốc 50%.
+      el.style.setProperty('--off', `${Math.min(50, Math.abs(pct - 50))}%`);
+    } else {
+      el.style.setProperty('--fill', `${pct}%`);
+    }
+    // Chip giá trị live (output trong label)
+    const out = document.getElementById(id + 'Value');
+    if (out) {
+      if (id === 'printScale' || id === 'textScale') out.textContent = `${Math.round(val)}%`;
+      else if (id === 'printRotation') out.textContent = `${Math.round(val)}°`;
+      else out.textContent = String(Math.round(val));
+    }
+  });
 }
 
 // Master refresh for one side: overlay (per-layer DOM) + inputs + list +
@@ -2131,6 +2673,7 @@ async function refreshSideViews() {
   syncPlacementInputs();
   syncPresetChips();
   try {
+    if (viewerUpdateTimer) { clearTimeout(viewerUpdateTimer); viewerUpdateTimer = null; }
     await applyCurrentDesignToViewer();
   } catch (e) {
     console.warn('Viewer refresh failed:', e?.message || e);
@@ -2157,6 +2700,7 @@ function initPrintControls() {
     input.setAttribute('maxlength', String(HARDEN_LIMITS.customTextMax));
     input.addEventListener('input', () => applyCustomText(input));
   });
+  initTextStyleControls();
 
   // Image placement — always edits the SELECTED layer (never the whole side).
   const bind = (ids, stateKey, defaults) => {
@@ -2175,30 +2719,45 @@ function initPrintControls() {
           if (rotEl) sel.rotation = clampNum(Number(rotEl.value ?? 0), ...LAYER_BOUNDS.rotation);
           state.printPlacement = { x: sel.x, y: sel.y, scale: sel.scale };
           commitActivePlacements();
-          refreshSideViews();
+          syncPlacementInputs();
+          scheduleViewerUpdateThrottled(); // live 3D feedback trong lúc kéo
           return;
         }
         setActivePlacementLayer('text');
+        // numOr: rỗng → fallback, else Number — toán tử `||` trước đây nuốt
+        // giá trị 0 hợp lệ (kéo X chữ về 0 bị hiểu là 'falsy' → nhảy về 18).
+        const numOr = (id, fallback) => {
+          const el = document.getElementById(id);
+          const raw = el ? String(el.value ?? '').trim() : '';
+          if (raw === '') return fallback;
+          const n = Number(raw);
+          return Number.isFinite(n) ? n : fallback;
+        };
         state[stateKey] = {
-          x: Number(document.getElementById(ids[0])?.value || defaults.x),
-          y: Number(document.getElementById(ids[1])?.value || defaults.y),
-          scale: Number(document.getElementById(ids[2])?.value || defaults.scale * 100) / 100,
+          x: clampNum(numOr(ids[0], defaults.x), ...TEXT_BOUNDS.x),
+          y: clampNum(numOr(ids[1], defaults.y), ...TEXT_BOUNDS.y),
+          scale: clampNum(numOr(ids[2], defaults.scale * 100) / 100, ...TEXT_BOUNDS.scale, 1),
         };
         commitActivePlacements();
         updateOverlayPlacement();
-        applyCurrentDesignToViewer();
-        syncPresetChips();
+        syncPlacementInputs();
+        scheduleViewerUpdateThrottled();
       });
     });
   };
   bind(['printPosX', 'printPosY', 'printScale'], 'printPlacement', { x: 0, y: -12, scale: 1 });
   bind(['textPosX', 'textPosY', 'textScale'], 'textPlacement', { x: 0, y: 18, scale: 1 });
+  // Thả chuột (change) → refresh đầy đủ 1 lần (list, presets, decal final).
+  ['printPosX', 'printPosY', 'printScale', 'printRotation', 'textPosX', 'textPosY', 'textScale'].forEach((id) => {
+    document.getElementById(id)?.addEventListener('change', () => refreshSideViews());
+  });
   document.getElementById('printRotation')?.addEventListener('input', (e) => {
     const sel = requireSelectedLayer();
     if (!sel) return;
     sel.rotation = clampNum(Number(e.target.value ?? 0), ...LAYER_BOUNDS.rotation);
     commitActivePlacements();
-    refreshSideViews();
+    syncPlacementInputs();
+    scheduleViewerUpdateThrottled(); // xoay live mượt, full refresh khi thả (change)
   });
 
   document.getElementById('placementReset')?.addEventListener('click', () => {
@@ -2216,6 +2775,39 @@ function initPrintControls() {
     refreshSideViews();
   });
 
+  // Căn giữa nhanh (1 click = chính xác, không cần kéo săm snap):
+  document.getElementById('printCenterH')?.addEventListener('click', () => {
+    const sel = getSelectedLayer();
+    if (!sel) { showToast('Chọn một mẫu để căn giữa.', 'warning'); return; }
+    sel.x = 0;
+    state.printPlacement.x = 0;
+    commitActivePlacements();
+    refreshSideViews();
+    showToast('Đã căn giữa ngang.', 'success', 1200);
+  });
+  document.getElementById('printCenterV')?.addEventListener('click', () => {
+    const sel = getSelectedLayer();
+    if (!sel) { showToast('Chọn một mẫu để căn giữa.', 'warning'); return; }
+    // Giữa dọc vùng in = y 0 (mapping 0.44 chiều cao composite — ngực).
+    sel.y = 0;
+    state.printPlacement.y = 0;
+    commitActivePlacements();
+    refreshSideViews();
+    showToast('Đã căn giữa dọc.', 'success', 1200);
+  });
+  document.getElementById('textCenterH')?.addEventListener('click', () => {
+    state.textPlacement.x = 0;
+    commitActivePlacements();
+    refreshSideViews();
+    showToast('Chữ đã căn giữa ngang.', 'success', 1200);
+  });
+  document.getElementById('textCenterV')?.addEventListener('click', () => {
+    state.textPlacement.y = 0;
+    commitActivePlacements();
+    refreshSideViews();
+    showToast('Chữ đã căn giữa dọc.', 'success', 1200);
+  });
+
   // Keyboard nudge
   document.addEventListener('keydown', e => {
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
@@ -2231,6 +2823,139 @@ function initPrintControls() {
   setInteractionMode(state.interactionMode);
   syncPlacementInputs();
   updateOverlayPlacement();
+  initStickerPicker();
+  initAlignTools();
+}
+
+/* ============================================================
+   STICKER / CHI TIẾT TÙY Ý — thêm họa tiết nhỏ độc lập lên mặt áo
+   đang xem. Mỗi sticker là 1 layer bình thường: kéo thả tự do,
+   chỉnh scale/rotation/ẩn/xóa như mọi layer khác.
+   ============================================================ */
+function initStickerPicker() {
+  const picker = document.getElementById('stickerPicker');
+  if (!picker) return;
+  const sideTag = document.getElementById('stickerSideTag');
+  if (sideTag) sideTag.textContent = state.currentView === 'back' ? 'mặt sau' : 'mặt trước';
+  picker.addEventListener('click', (e) => {
+    const chip = e.target.closest('.sticker-chip');
+    if (!chip) return;
+    const glyph = chip.dataset.sticker;
+    if (!glyph) return;
+    addStickerLayer(state.currentView, glyph);
+  });
+}
+
+function addStickerLayer(side, glyph) {
+  // SVG data-URL, nền trong suốt — composite/overlay/3D đều dùng được.
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><text x="128" y="128" font-size="190" text-anchor="middle" dominant-baseline="central">${glyph}</text></svg>`;
+  const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const layer = addLayer(side, {
+    url,
+    kind: 'sticker',
+    name: `Chi tiết ${glyph}`,
+    scale: 0.32,
+  });
+  if (!layer) return;
+  // Mở panel chỉnh sửa + ẩn empty-state để layer hiển thị ngay trên khung áo.
+  const panel = document.getElementById('placementPanel');
+  if (panel) panel.style.display = 'block';
+  const viewerEl = document.getElementById('canvasViewer');
+  const emptyEl = document.getElementById('canvasEmpty');
+  if (viewerEl) viewerEl.style.display = 'flex';
+  if (emptyEl) emptyEl.style.display = 'none';
+  refreshSideViews().then(() => {
+    updatePrice();
+    updateActionButtons(true);
+    updateSideBadge();
+    updateBackDesignControls();
+  });
+  showToast(`Đã thêm ${glyph} — kéo để đặt vị trí`, 'success', 1800);
+}
+
+/* ============================================================
+   TEXT STYLE CONTROLS — font / hoa-thường / đậm / màu / nghiêng /
+   gạch chân / viền / giãn chữ. Mọi thay đổi cập nhật overlay + composite
+   (cache key gồm style nên decal 3D tự rebuild đúng).
+   ============================================================ */
+function syncTextStyleControls() {
+  const st = getSideTextStyle();
+  const fontSel = document.getElementById('textFontSelect');
+  if (fontSel) fontSel.value = st.font;
+  const weightSel = document.getElementById('textWeightSelect');
+  if (weightSel) weightSel.value = String(st.weight);
+  const colorIn = document.getElementById('textColorInput');
+  if (colorIn) colorIn.value = st.color;
+  const spacingEl = document.getElementById('textSpacing');
+  if (spacingEl) spacingEl.value = String(st.spacing);
+  const spacingOut = document.getElementById('textSpacingValue');
+  if (spacingOut) spacingOut.textContent = `${Math.round(st.spacing)}%`;
+  document.querySelectorAll('#textCaseGroup .text-case-btn').forEach(b => {
+    const on = b.dataset.case === st.transform;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const map = { textItalicBtn: 'italic', textUnderlineBtn: 'underline', textStrokeBtn: 'stroke' };
+  Object.entries(map).forEach(([id, key]) => {
+    const b = document.getElementById(id);
+    if (b) { b.classList.toggle('active', !!st[key]); b.setAttribute('aria-pressed', st[key] ? 'true' : 'false'); }
+  });
+  document.querySelectorAll('#textColorPresets .text-color-dot').forEach(d => {
+    d.classList.toggle('active', (d.dataset.color || '').toLowerCase() === String(st.color).toLowerCase());
+  });
+}
+
+function initTextStyleControls() {
+  const rerender = () => {
+    updateDesignOverlayForSide();
+    applyCurrentDesignToViewer();
+  };
+  document.getElementById('textFontSelect')?.addEventListener('change', (e) => {
+    commitSideTextStyle({ font: e.target.value });
+    // Weight vượt cap của font mới → hạ về cap (Playfair không có 900).
+    const cap = (TEXT_FONTS[e.target.value] || TEXT_FONTS.display).weightCap;
+    if ((getSideTextStyle().weight || 0) > cap) commitSideTextStyle({ weight: cap });
+    syncTextStyleControls();
+    rerender();
+  });
+  document.getElementById('textWeightSelect')?.addEventListener('change', (e) => {
+    commitSideTextStyle({ weight: clampNum(Number(e.target.value), 400, 900, 900) });
+    rerender();
+  });
+  // Color input: 'input' live mượt (không đợi change).
+  document.getElementById('textColorInput')?.addEventListener('input', (e) => {
+    commitSideTextStyle({ color: e.target.value });
+    syncTextStyleControls();
+    rerender();
+  });
+  document.getElementById('textSpacing')?.addEventListener('input', (e) => {
+    commitSideTextStyle({ spacing: clampNum(Number(e.target.value), 0, 30, 0) });
+    syncTextStyleControls();
+    rerender();
+  });
+  document.querySelectorAll('#textCaseGroup .text-case-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      commitSideTextStyle({ transform: btn.dataset.case || 'upper' });
+      syncTextStyleControls();
+      rerender();
+    });
+  });
+  const toggleMap = { textItalicBtn: 'italic', textUnderlineBtn: 'underline', textStrokeBtn: 'stroke' };
+  Object.entries(toggleMap).forEach(([id, key]) => {
+    document.getElementById(id)?.addEventListener('click', () => {
+      commitSideTextStyle({ [key]: !getSideTextStyle()[key] });
+      syncTextStyleControls();
+      rerender();
+    });
+  });
+  document.querySelectorAll('#textColorPresets .text-color-dot').forEach(dot => {
+    dot.addEventListener('click', () => {
+      commitSideTextStyle({ color: dot.dataset.color });
+      syncTextStyleControls();
+      rerender();
+    });
+  });
+  syncTextStyleControls();
 }
 
 function nudgePlacement(layer, dx, dy) {
@@ -2252,7 +2977,9 @@ function nudgePlacement(layer, dx, dy) {
 /* ============================================================
    MULTI-DESIGN LAYERS — independent entities per garment side
    ============================================================ */
-const LAYER_BOUNDS = { x: [-80, 80], y: [-75, 45], scale: [0.2, 2.2], rotation: [0, 360] };
+const LAYER_BOUNDS = { x: [-115, 115], y: [-110, 80], scale: [0.1, 2.6], rotation: [0, 360] };
+// Bounds slider placement chữ (khớp min/max trong studio.html)
+const TEXT_BOUNDS = { x: [-80, 80], y: [-75, 45], scale: [0.3, 2.6] };
 
 function clampNum(v, min, max, fallback = 0) {
   const n = Number(v);
@@ -2278,7 +3005,42 @@ function sanitizeLayer(l) {
   l.rotation = clampNum(l.rotation, ...LAYER_BOUNDS.rotation);
   l.visible = l.visible !== false;
   if (!Number.isFinite(l.z)) l.z = 0;
+  clampLayerToPrintArea(l);
   return l;
+}
+
+/* VÙNG IN — NGUYÊN TẮC "ẢNH NGUYÊN VẸN": ảnh luôn nằm TRỌN VÙNG IN,
+   KHÔNG BAO GIỜ bị khuất mép (lỗi cũ: cho phép tâm ảnh tràn tới 45% gần biên
+   → kéo tới biên thì một phần ảnh bị cắt ngoài vùng in, trông như bị khuất).
+   Composite in là canvas 1024: ảnh chiếm 58% * scale kích thước, tâm dọc 44%.
+   Áp cho MỌI đường di chuyển: kéo overlay, kéo canvas, slider, nudge, wheel,
+   restore từ history. Bounds trả về qua getLayerLimits() để boundary UI
+   (khung giới hạn + HUD) biết chính xác biên hiện tại. */
+function layerPrintLimits(layer) {
+  const s = Number(layer?.scale) || 1;
+  // ratio: bề rộng thực của nội dung trong composite (ảnh = 0.58; chữ ≈ 0.4).
+  const ratio = Number(layer?.ratio) || 0.58;
+  // Nửa kích thước nội dung (% vùng in).
+  const half = Math.min((ratio / 2) * 100 * s, 50);
+  /* VÙNG DI CHUYỂN RỘNG — 2 cấp rõ ràng:
+     • Ảnh nhỏ/vừa (half ≤ 29, tức scale ≤ 1): tâm được thoải mái tới 42% —
+       ảnh có thể tràn ra NGOÀI khung composite (vẫn nằm trên decal plane
+       của áo nên PHẦN TRÀN VẪN IN ĐƯỢC — full-print style). HUD soft-warn
+       khi mép ảnh vượt khung in để người dùng chủ động.
+     • Ảnh to (half > 29): giữ tâm trong 42% — phần ngoài decal plane sẽ bị
+       mép áo che, nhưng trần 42 đảm bảo ảnh luôn nằm TRÊN ÁO. */
+  const TRAVEL = 42; // trần di chuyển tâm (% vùng in)
+  const maxX = TRAVEL;
+  const minY = -Math.min(TRAVEL, 44 - half * 0.35);
+  const maxY = Math.min(TRAVEL, 56 - half * 0.15);
+  return { minX: -maxX, maxX, minY, maxY, half, soft: half > 21 };
+}
+function clampLayerToPrintArea(layer) {
+  if (!layer) return layer;
+  const lim = layerPrintLimits(layer);
+  layer.x = clampNum(layer.x, lim.minX, lim.maxX);
+  layer.y = clampNum(layer.y, lim.minY, lim.maxY);
+  return layer;
 }
 
 function getSelectedLayer(side = state.currentView) {
@@ -2330,13 +3092,19 @@ function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotat
   const k = side === 'back' ? 'back' : 'front';
   const layers = sideLayers(k);
   const maxZ = layers.reduce((m, l) => Math.max(m, Number(l.z) || 0), 0);
+  // Cascade spawn: layer mới KHÔNG đè lên layer cũ. Khi caller không chỉ định
+  // vị trí, rải theo đường chéo quanh tâm ngực (0,-12) — cùng vị trí lặp lại
+  // sau 4 mẫu để không trôi vô hạn ra ngoài vùng in.
+  const SPAWN_X = [0, 20, -20, 8];
+  const SPAWN_Y = [-12, -4, -4, -26];
+  const spawnIdx = layers.length % SPAWN_X.length;
   const layer = sanitizeLayer({
     id: layerUid('layer'),
     url,
     kind: kind || 'image',
     assetId: assetId || null,
-    x: x !== undefined ? x : 0,
-    y: y !== undefined ? y : -12,
+    x: x !== undefined ? x : SPAWN_X[spawnIdx],
+    y: y !== undefined ? y : SPAWN_Y[spawnIdx],
     scale: scale !== undefined ? scale : 1,
     rotation: rotation !== undefined ? rotation : 0,
     visible: true,
@@ -2441,11 +3209,16 @@ function initCanvasLayerDrag() {
   const container = document.getElementById('canvasViewer');
   if (!container) return;
   let dragging = false, lastX = 0, lastY = 0, layer = null;
+  let dragSrc = null, dragRect = null, previewStarted = false;
   container.addEventListener('pointerdown', (e) => {
     if (state.interactionMode !== 'position') return; // rotate mode: tilt áo
     if (e.button !== undefined && e.button !== 0) return;
-    if (state.activePlacementLayer === 'text' && getSideCustomText()) {
-      layer = null; // kéo chữ (textPlacement) thay vì layer ảnh
+    // Kéo chữ (textPlacement) hoặc kéo layer ảnh — phân nhánh SẠCH: mode
+    // text thì layer luôn null (bug cũ: truy cập layer.id khi null → crash,
+    // drag chết luôn cả phiên).
+    const isTextDrag = state.activePlacementLayer === 'text' && getSideCustomText();
+    if (isTextDrag) {
+      layer = null;
     } else {
       layer = getSelectedLayer();
       if (!layer) {
@@ -2456,6 +3229,14 @@ function initCanvasLayerDrag() {
         showToast(`Đang kéo: ${top.name || 'mẫu'} — đổi mẫu cần kéo trong danh sách lớp.`, 'info', 2200);
       }
     }
+    // Đo rect trên overlay img thật (nếu hiển thị) — để preview xuất hiện
+    // NGAY đúng vị trí ảnh, không nhảy.
+    const overlayImg = !isTextDrag && layer
+      ? document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(layer.id)}"]`)
+      : null;
+    dragRect = overlayImg && overlayImg.getBoundingClientRect().width > 4 ? overlayImg.getBoundingClientRect() : null;
+    dragSrc = isTextDrag ? null : layer.url;
+    previewStarted = false;
     dragging = true;
     lastX = e.clientX; lastY = e.clientY;
     try { container.setPointerCapture(e.pointerId); } catch (err) { /* */ }
@@ -2463,9 +3244,19 @@ function initCanvasLayerDrag() {
   });
   container.addEventListener('pointermove', (e) => {
     if (!dragging) return;
+    if (!previewStarted) {
+      previewStarted = true;
+      // Kéo chữ: dựng preview ảnh chữ thật (canvas → dataURL) — chữ bám tay
+      // từng pixel y hệt layer ảnh, không phân biệt.
+      const srcForPreview = dragSrc || buildTextDragPreviewUrl();
+      beginLayerDragPreview(srcForPreview, dragRect, e.clientX, e.clientY, state.textPlacement.scale, { ratio: 0.4 });
+    }
+    moveLayerDragPreview(e.clientX, e.clientY);
     const w = container.clientWidth || 1;
-    // Hiệu chuẩn: decal ≈ 42% rộng áo, áo ≈ 70% rộng khung → 1% composite ≈ 0.3w px
-    const k = 100 / (0.3 * w);
+    // Chuẩn 1:1 giống đường kéo overlay: ảnh decal ≈ 42% rộng áo, áo ≈ 70% rộng
+    // khung → ảnh hiển thị ≈ 0.294w px; 1% vị trí = 0.294w px chuột → ảnh chạy
+    // đúng tốc độ tay (trước đây k=100/0.3w làm 1px chuột = 100% — ảnh “bay”).
+    const k = 1 / (0.294 * w) * 100;
     const dx = (e.clientX - lastX) * k;
     const dy = (e.clientY - lastY) * k;
     lastX = e.clientX; lastY = e.clientY;
@@ -2473,18 +3264,102 @@ function initCanvasLayerDrag() {
       const tp = state.textPlacement;
       tp.x = clampNum(tp.x + dx, -80, 80);
       tp.y = clampNum(tp.y + dy, -75, 45);
+      const sn = snapPlacement({ x: tp.x, y: tp.y }, { bypass: e.altKey, siblings: siblingSnapTargets(state.currentView, null), layer: { scale: tp.scale, ratio: 0.4 } });
+      tp.x = sn.x; tp.y = sn.y;
+      updateDragHud({ x: tp.x, y: tp.y, snapLabel: sn.snapLabel, limitLabel: sn.limitLabel });
     } else if (layer) {
       layer.x = clampNum(layer.x + dx, ...LAYER_BOUNDS.x);
       layer.y = clampNum(layer.y + dy, ...LAYER_BOUNDS.y);
+      const sn = snapPlacement({ x: layer.x, y: layer.y }, { bypass: e.altKey, siblings: siblingSnapTargets(state.currentView, layer.id), layer });
+      layer.x = sn.x; layer.y = sn.y;
+      updateDragHud({ x: layer.x, y: layer.y, snapLabel: sn.snapLabel, limitLabel: sn.limitLabel });
     } else { return; }
     commitActivePlacements();
     syncPlacementInputs();
     renderLayersOverlay();
     scheduleViewerUpdate();
   });
-  const stop = () => { dragging = false; layer = null; };
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false; layer = null;
+    hideSnapGuides(); hideDragHud(); hidePrintBoundary();
+    endLayerDragPreview();
+  };
   container.addEventListener('pointerup', stop);
   container.addEventListener('pointercancel', stop);
+
+  // WHEEL-TO-SCALE: lăn chuột trên canvas (chế độ Vị trí) đổi kích thước
+  // layer đang chọn (hoặc chữ). Ctrl+lăn = bước lớn. Đây là shortcut tiêu
+  // chuẩn của mọi phần mềm thiết kế — không conflict với page scroll vì
+  // preventDefault trong canvas.
+  container.addEventListener('wheel', (e) => {
+    if (state.interactionMode !== 'position') return;
+    e.preventDefault();
+    const stepDir = e.deltaY < 0 ? 1 : -1;
+    const step = e.ctrlKey ? 0.12 : 0.05;
+    if (state.activePlacementLayer === 'text' && getSideCustomText()) {
+      const tp = state.textPlacement;
+      tp.scale = clampNum(tp.scale + stepDir * step, ...TEXT_BOUNDS.scale, 1);
+    } else {
+      const sel = getSelectedLayer();
+      if (!sel) return;
+      sel.scale = clampNum(sel.scale + stepDir * step, ...LAYER_BOUNDS.scale, 1);
+      state.printPlacement = { x: sel.x, y: sel.y, scale: sel.scale };
+    }
+    commitActivePlacements();
+    syncPlacementInputs();
+    renderLayersOverlay();
+    scheduleViewerUpdateThrottled();
+  }, { passive: false });
+}
+
+/* Preview kéo chữ: render slogan theo đúng style hiện tại ra canvas trong suốt
+   → dataURL. Cache theo composite key — không re-render mỗi lần nhấn. */
+function buildTextDragPreviewUrl() {
+  const side = state.currentView;
+  const text = getSideCustomText(side);
+  const style = getSideTextStyle(side);
+  const tp = getSideTextPlacement(side);
+  const size = 256;
+  const c = document.createElement('canvas'); c.width = size; c.height = size;
+  drawStyledText(c.getContext('2d'), size, text, { x: 0, y: 0, scale: tp.scale }, style);
+  return c.toDataURL('image/png');
+}
+
+/* ============================================================
+   ALIGN TOOLS PRO — phân bố đều / xếp hàng / cột cho nhiều mẫu.
+   Toán học: sort theo trục, chốt 2 mẫu đầu-cuối giữ nguyên, các mẫu
+   giữa nhận vị trí nội suy đều. Không đụng scale/rotation/z.
+   ============================================================ */
+function distributeLayers(axis) {
+  const side = state.currentView;
+  const layers = sideLayers(side).filter(l => l.visible !== false && l.url);
+  if (layers.length < 3) { showToast('Cần ít nhất 3 mẫu để phân bố đều.', 'warning'); return; }
+  const sorted = [...layers].sort((a, b) => a[axis] - b[axis]);
+  const first = sorted[0][axis], last = sorted[sorted.length - 1][axis];
+  const step = (last - first) / (sorted.length - 1);
+  sorted.forEach((l, i) => { l[axis] = clampNum(first + step * i, ...LAYER_BOUNDS[axis]); });
+  commitActivePlacements();
+  refreshSideViews();
+  showToast(`Đã phân bố đều ${sorted.length} mẫu theo trục ${axis === 'x' ? 'ngang' : 'dọc'}.`, 'success', 1600);
+}
+function alignLayersRow(axis) {
+  // Xếp thẳng hàng: tất cả lấy vị trí trục của mẫu đang chọn (hoặc trung bình).
+  const side = state.currentView;
+  const layers = sideLayers(side).filter(l => l.visible !== false && l.url);
+  if (layers.length < 2) { showToast('Cần ít nhất 2 mẫu để xếp hàng.', 'warning'); return; }
+  const sel = getSelectedLayer(side);
+  const ref = sel ? sel[axis] : layers.reduce((s, l) => s + l[axis], 0) / layers.length;
+  layers.forEach(l => { l[axis] = clampNum(ref, ...LAYER_BOUNDS[axis]); });
+  commitActivePlacements();
+  refreshSideViews();
+  showToast(`Đã xếp thẳng ${axis === 'x' ? 'cột dọc' : 'hàng ngang'} qua mẫu đang chọn.`, 'success', 1600);
+}
+function initAlignTools() {
+  document.getElementById('distributeH')?.addEventListener('click', () => distributeLayers('x'));
+  document.getElementById('distributeV')?.addEventListener('click', () => distributeLayers('y'));
+  document.getElementById('alignRowH')?.addEventListener('click', () => alignLayersRow('x'));
+  document.getElementById('alignColV')?.addEventListener('click', () => alignLayersRow('y'));
 }
 
 function initThreeViewer() {
@@ -2493,6 +3368,9 @@ function initThreeViewer() {
     if (window.tshirt360Viewer) {
       clearInterval(check);
       window.tshirt360Viewer.setColor(state.selectedColor);
+      // Viewer sẵn sàng → áp chế độ chuột hiện tại (mặc định position → orbit
+      // TẮT, tránh kéo layer bị áo quay theo).
+      try { window.tshirt360Viewer.setInteractionMode?.(state.interactionMode); } catch (e) { /* */ }
     }
   }, 200);
   setTimeout(() => clearInterval(check), 5000);

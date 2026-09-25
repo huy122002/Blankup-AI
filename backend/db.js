@@ -491,7 +491,13 @@ async function ensureProfessionalConstraints() {
       IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_AiCreditLedger_quality')
         ALTER TABLE dbo.AiCreditLedger ADD CONSTRAINT CK_AiCreditLedger_quality CHECK (quality IN (N'low', N'high'));
       IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_VerificationCodes_type')
-        ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT CK_VerificationCodes_type CHECK (type IN (N'email', N'phone'));
+        ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT CK_VerificationCodes_type CHECK (type IN (N'email', N'phone', N'password_reset'));
+      -- Migration: older DBs have the constraint without 'password_reset' — recreate it.
+      IF EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_VerificationCodes_type' AND definition NOT LIKE '%password_reset%')
+        BEGIN
+          ALTER TABLE dbo.VerificationCodes DROP CONSTRAINT CK_VerificationCodes_type;
+          ALTER TABLE dbo.VerificationCodes ADD CONSTRAINT CK_VerificationCodes_type CHECK (type IN (N'email', N'phone', N'password_reset'));
+        END
       IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Orders_paymentStatus')
         ALTER TABLE dbo.Orders ADD CONSTRAINT CK_Orders_paymentStatus CHECK (paymentStatus IS NULL OR paymentStatus IN (N'pending', N'paid', N'failed', N'awaiting_transfer', N'underpaid'));
       IF NOT EXISTS (SELECT * FROM sys.check_constraints WHERE name = 'CK_Orders_finalPrice')
@@ -646,6 +652,8 @@ async function ensureProfessionalConstraints() {
         INSERT INTO dbo.SchemaVersion (version, description) VALUES (2, N'Professional schema: FK, INDEX, CHECK, updatedAt, isShared');
       IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersion WHERE version = 3)
         INSERT INTO dbo.SchemaVersion (version, description) VALUES (3, N'Persistent purchase idempotency + transferContent uniqueness guard');
+      IF NOT EXISTS (SELECT 1 FROM dbo.SchemaVersion WHERE version = 4)
+        INSERT INTO dbo.SchemaVersion (version, description) VALUES (4, N'VerificationCodes.type allows password_reset (forgot-password OTP)');
     `);
   } catch (err) {
     console.warn('[DB] ensureProfessionalConstraints warning (non-fatal):', err.message);

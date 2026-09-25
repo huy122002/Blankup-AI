@@ -11,7 +11,7 @@
   <meta name="description" content="Tạo thiết kế áo thun độc nhất với AI. Viết prompt hoặc upload ảnh để AI thiết kế cho bạn.">
     <link rel="stylesheet" href="css/tokens.css?v=v5">
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/studio.css?v=v5">
+  <link rel="stylesheet" href="css/studio.css?v=v22">
   <link rel="stylesheet" href="css/pro.css?v=v2">
 </head>
 <body class="bk-grain">
@@ -277,6 +277,8 @@
             <div class="viewer-design-overlay" id="mockupDesign"></div>
             <div class="garment-unavailable-msg" id="garmentUnavailableMsg" hidden></div>
             <div class="viewer-side-badge" id="viewerSideBadge">MẶT TRƯỚC</div>
+            <!-- Snap guides + drag HUD (tạo bằng JS, phần tử này chỉ là mốc chú thích) -->
+            <div class="viewer-hint" id="viewerDragHint" hidden>Giữ <b>Alt</b> khi kéo để đặt tự do · Lăn chuột để đổi kích thước</div>
           </div>
         </div>
 
@@ -328,7 +330,11 @@
           </div>
           <div class="placement-panel-header">
             <span>Vị trí in · <em class="placement-side-tag" id="placementSideTag">mặt trước</em></span>
-            <button class="placement-reset-btn" id="placementReset">Reset</button>
+            <span class="align-quick">
+              <button type="button" class="align-btn" id="printCenterH" title="Căn giữa ngang">⇔</button>
+              <button type="button" class="align-btn" id="printCenterV" title="Căn giữa dọc">⇕</button>
+              <button class="placement-reset-btn" id="placementReset">Reset</button>
+            </span>
           </div>
           <div class="placement-presets" id="printPositionPresets">
             <button class="placement-preset-btn active" data-pp="chest">Giữa ngực</button>
@@ -346,44 +352,157 @@
             <div class="placement-panel-header">
               <span>Mẫu trên áo · <em class="placement-side-tag" id="layerCountTag"></em></span>
             </div>
+            <!-- Căn chỉnh pro: chỉ hiện khi có ≥2 mẫu -->
+            <div class="align-tools" id="alignTools" style="display:none;">
+              <button type="button" class="align-tool-btn" id="distributeH" title="Phân bố đều ngang">⇤···⇥</button>
+              <button type="button" class="align-tool-btn" id="distributeV" title="Phân bố đều dọc">⇡···⇣</button>
+              <button type="button" class="align-tool-btn" id="alignRowH" title="Xếp thẳng hàng ngang">— · Hàng</button>
+              <button type="button" class="align-tool-btn" id="alignColV" title="Xếp thẳng cột dọc">| · Cột</button>
+            </div>
             <div id="layerList" class="layer-list"></div>
             <div class="layer-hint">Bấm “Tạo Design” để thêm mẫu mới vào mặt này. Bấm vào mẫu để chọn rồi chỉnh riêng.</div>
           </div>
           <div class="placement-sliders">
             <div class="placement-slider-group">
-              <label for="printPosX">Ngang (X)</label>
-              <input type="range" id="printPosX" min="-80" max="80" value="0" aria-label="Vị trí ngang của mẫu in">
+              <div class="placement-slider-top">
+                <label for="printPosX">Ngang (X)</label>
+                <output class="slider-value" id="printPosXValue" for="printPosX">0</output>
+              </div>
+              <input type="range" class="center-origin" id="printPosX" min="-115" max="115" value="0" aria-label="Vị trí ngang của mẫu in">
             </div>
             <div class="placement-slider-group">
-              <label for="printPosY">Dọc (Y)</label>
-              <input type="range" id="printPosY" min="-75" max="45" value="-12" aria-label="Vị trí dọc của mẫu in">
+              <div class="placement-slider-top">
+                <label for="printPosY">Dọc (Y)</label>
+                <output class="slider-value" id="printPosYValue" for="printPosY">-12</output>
+              </div>
+              <input type="range" class="center-origin" id="printPosY" min="-110" max="80" value="-12" aria-label="Vị trí dọc của mẫu in">
             </div>
             <div class="placement-slider-group">
-              <label for="printScale">Kích thước</label>
-              <input type="range" id="printScale" min="20" max="220" value="100" aria-label="Kích thước mẫu in (phần trăm)">
+              <div class="placement-slider-top">
+                <label for="printScale">Kích thước</label>
+                <output class="slider-value" id="printScaleValue" for="printScale">100%</output>
+              </div>
+              <input type="range" id="printScale" min="10" max="260" value="100" aria-label="Kích thước mẫu in (phần trăm)">
             </div>
             <div class="placement-slider-group">
-              <label for="printRotation">Xoay (°)</label>
+              <div class="placement-slider-top">
+                <label for="printRotation">Xoay (°)</label>
+                <output class="slider-value" id="printRotationValue" for="printRotation">0°</output>
+              </div>
               <input type="range" id="printRotation" min="0" max="360" value="0" aria-label="Góc xoay mẫu in">
             </div>
           </div>
           <div class="placement-panel-header" style="margin-top:8px;">
             <span>Vị trí chữ</span>
+            <span class="align-quick">
+              <button type="button" class="align-btn" id="textCenterH" title="Căn giữa ngang">⇔</button>
+              <button type="button" class="align-btn" id="textCenterV" title="Căn giữa dọc">⇕</button>
+            </span>
           </div>
           <div class="placement-sliders">
             <div class="placement-slider-group">
-              <label for="textPosX">Ngang (X)</label>
-              <input type="range" id="textPosX" min="-80" max="80" value="0" aria-label="Vị trí ngang của chữ">
+              <div class="placement-slider-top">
+                <label for="textPosX">Ngang (X)</label>
+                <output class="slider-value" id="textPosXValue" for="textPosX">0</output>
+              </div>
+              <input type="range" class="center-origin" id="textPosX" min="-80" max="80" value="0" aria-label="Vị trí ngang của chữ">
             </div>
             <div class="placement-slider-group">
-              <label for="textPosY">Dọc (Y)</label>
-              <input type="range" id="textPosY" min="-75" max="45" value="18" aria-label="Vị trí dọc của chữ">
+              <div class="placement-slider-top">
+                <label for="textPosY">Dọc (Y)</label>
+                <output class="slider-value" id="textPosYValue" for="textPosY">18</output>
+              </div>
+              <input type="range" class="center-origin" id="textPosY" min="-75" max="45" value="18" aria-label="Vị trí dọc của chữ">
             </div>
             <div class="placement-slider-group">
-              <label for="textScale">Kích thước</label>
+              <div class="placement-slider-top">
+                <label for="textScale">Kích thước</label>
+                <output class="slider-value" id="textScaleValue" for="textScale">100%</output>
+              </div>
               <input type="range" id="textScale" min="30" max="260" value="100" aria-label="Kích thước chữ (phần trăm)">
             </div>
           </div>
+          <!-- Kiểu chữ slogan — tương tự bảng điều khiển type của phần mềm thiết kế -->
+          <div class="placement-panel-header" style="margin-top:8px;">
+            <span>Kiểu chữ</span>
+          </div>
+          <div class="text-style-controls" id="textStyleControls">
+            <div class="text-style-row">
+              <label class="text-style-label" for="textFontSelect">Font</label>
+              <div class="text-style-select-wrap">
+                <select id="textFontSelect" class="text-style-select" aria-label="Phông chữ">
+                  <option value="display">Display · Arial Black</option>
+                  <option value="poster">Poster · Impact</option>
+                  <option value="serif">Serif · Playfair</option>
+                  <option value="sans">Sans · Manrope</option>
+                  <option value="mono">Mono · DM Mono</option>
+                  <option value="classic">Classic · Georgia</option>
+                </select>
+              </div>
+            </div>
+            <div class="text-style-row">
+              <span class="text-style-label">Chữ</span>
+              <div class="text-case-group" id="textCaseGroup" role="group" aria-label="Kiểu chữ hoa/thường">
+                <button type="button" class="text-case-btn active" data-case="upper" title="TẤT CẢ CHỮ HOA" aria-pressed="true">AA</button>
+                <button type="button" class="text-case-btn" data-case="lower" title="tất cả chữ thường" aria-pressed="false">aa</button>
+                <button type="button" class="text-case-btn" data-case="title" title="Viết Hoa Từ Đầu Câu" aria-pressed="false">Aa</button>
+                <button type="button" class="text-case-btn" data-case="none" title="Giữ nguyên như gõ" aria-pressed="false">A|a</button>
+              </div>
+              <div class="text-style-toggles">
+                <button type="button" class="text-toggle-btn" id="textItalicBtn" title="In nghiêng" aria-pressed="false"><em>I</em></button>
+                <button type="button" class="text-toggle-btn" id="textUnderlineBtn" title="Gạch chân" aria-pressed="false"><u>U</u></button>
+                <button type="button" class="text-toggle-btn text-toggle-stroke" id="textStrokeBtn" title="Viền tương phản (nổi trên nền áo)" aria-pressed="true">S</button>
+              </div>
+            </div>
+            <div class="text-style-row">
+              <label class="text-style-label" for="textWeightSelect">Đậm</label>
+              <div class="text-style-select-wrap">
+                <select id="textWeightSelect" class="text-style-select" aria-label="Độ đậm chữ">
+                  <option value="400">Thường</option>
+                  <option value="700">Đậm</option>
+                  <option value="900">Rất đậm</option>
+                </select>
+              </div>
+              <input type="color" id="textColorInput" class="text-color-input" value="#111827" title="Màu chữ" aria-label="Màu chữ">
+            </div>
+            <div class="text-style-row text-style-row-slider">
+              <label class="text-style-label" for="textSpacing">Giãn chữ</label>
+              <input type="range" id="textSpacing" min="0" max="30" value="0" aria-label="Giãn cách chữ (phần trăm)">
+              <output class="slider-value" id="textSpacingValue" for="textSpacing">0%</output>
+            </div>
+            <div class="text-color-presets" id="textColorPresets" role="group" aria-label="Màu chữ gợi ý">
+              <button type="button" class="text-color-dot active" data-color="#111827" style="background:#111827" title="Ink" aria-label="Màu ink"></button>
+              <button type="button" class="text-color-dot" data-color="#ffffff" style="background:#ffffff" title="Trắng" aria-label="Màu trắng"></button>
+              <button type="button" class="text-color-dot" data-color="#c19856" style="background:#c19856" title="Gold" aria-label="Màu gold"></button>
+              <button type="button" class="text-color-dot" data-color="#dc2626" style="background:#dc2626" title="Đỏ" aria-label="Màu đỏ"></button>
+              <button type="button" class="text-color-dot" data-color="#2563eb" style="background:#2563eb" title="Xanh" aria-label="Màu xanh"></button>
+              <button type="button" class="text-color-dot" data-color="#059669" style="background:#059669" title="Xanh lá" aria-label="Màu xanh lá"></button>
+              <button type="button" class="text-color-dot" data-color="#f59e0b" style="background:#f59e0b" title="Cam" aria-label="Màu cam"></button>
+              <button type="button" class="text-color-dot" data-color="#ec4899" style="background:#ec4899" title="Hồng" aria-label="Màu hồng"></button>
+            </div>
+          </div>
+          <div class="placement-panel-header" style="margin-top:8px;">
+            <span>Chi tiết tùy ý · <em class="placement-side-tag" id="stickerSideTag">mặt trước</em></span>
+          </div>
+          <div class="sticker-picker" id="stickerPicker" role="listbox" aria-label="Thêm chi tiết trang trí lên áo">
+            <button class="sticker-chip" type="button" data-sticker="⚡" title="Tia sét">⚡</button>
+            <button class="sticker-chip" type="button" data-sticker="🔥" title="Lửa">🔥</button>
+            <button class="sticker-chip" type="button" data-sticker="⭐" title="Ngôi sao">⭐</button>
+            <button class="sticker-chip" type="button" data-sticker="🌙" title="Mặt trăng khuyết">🌙</button>
+            <button class="sticker-chip" type="button" data-sticker="☀️" title="Mặt trời">☀️</button>
+            <button class="sticker-chip" type="button" data-sticker="💀" title="Đầu lâu">💀</button>
+            <button class="sticker-chip" type="button" data-sticker="🌹" title="Bông hồng">🌹</button>
+            <button class="sticker-chip" type="button" data-sticker="🦋" title="Bướm">🦋</button>
+            <button class="sticker-chip" type="button" data-sticker="🐉" title="Rồng">🐉</button>
+            <button class="sticker-chip" type="button" data-sticker="🍃" title="Lá">🍃</button>
+            <button class="sticker-chip" type="button" data-sticker="🌸" title="Hoa anh đào">🌸</button>
+            <button class="sticker-chip" type="button" data-sticker="✌️" title="Bộ hai ngón">✌️</button>
+            <button class="sticker-chip" type="button" data-sticker="👑" title="Vương miện">👑</button>
+            <button class="sticker-chip" type="button" data-sticker="🎯" title="Bia bắn">🎯</button>
+            <button class="sticker-chip" type="button" data-sticker="🧿" title="Mắt quỷ">🧿</button>
+            <button class="sticker-chip" type="button" data-sticker="☮️" title="Hòa bình">☮️</button>
+          </div>
+          <p class="sticker-hint">Bấm để thêm chi tiết lên mặt đang xem — kéo thả tự do, chỉnh kích thước/xoay như mẫu thường.</p>
         </div>
       </section>
 
@@ -741,9 +860,9 @@
   <script type="importmap">
     {"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}
   </script>
-  <script type="module" src="js/tshirt-360.js?v=15"></script>
+  <script type="module" src="js/tshirt-360.js?v=25"></script>
   <script src="js/motion.js?v=v5"></script>
   <script src="js/pro.js?v=v2" defer></script>
-  <script src="js/studio.js?v=v5"></script>
+  <script src="js/studio.js?v=v24"></script>
 </body>
 </html>
