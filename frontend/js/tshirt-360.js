@@ -14,6 +14,78 @@ import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
 // No core render-engine changes are needed. NEVER point an unavailable
 // garment at another garment's model — unavailable must stay unavailable.
 // ---------------------------------------------------------------------------
+/* PHASE 5 — PRINT PROJECTION SPEC.
+   Artwork sống trong DESIGN SPACE (composite 1024×1024 = VUÔNG, aspect 1:1).
+   Mọi garment PHẢI project design space đó với ĐÚNG aspect của nó. Trước đây
+   plane decal lấy HAI phân số độc lập của model bounds (scaleX*size.x và
+   scaleY*size.y) → cùng một ảnh vuông bị kéo giãn khác nhau tuỳ áo
+   (tshirt +5%, hoodie +37%) — đúng lỗi biến dạng khi đổi sản phẩm.
+   Quy tắc mới: plane decal suy ra từ MỘT chiều + aspect design space, nên
+   aspect không bao giờ phụ thuộc hình dáng model.
+     - print.heightFrac: chiều cao vùng in theo tỉ lệ chiều cao model
+       (calibration vật lý cho vùng in ngực của từng garment).
+     - print.aspect: W:H vùng in = aspect design space (bất biến theo garment).
+   Đổi kích thước in của một garment = sửa DUY NHẤT heightFrac của nó. */
+const DESIGN_SPACE_ASPECT = 1; // composite 1024×1024 trong studio.js
+
+function printProjectionSize(entry, size) {
+  const spec = (entry && entry.print) || {};
+  const heightFrac = Number(spec.heightFrac) > 0 ? Number(spec.heightFrac) : 0.36;
+  const aspect = Number(spec.aspect) > 0 ? Number(spec.aspect) : DESIGN_SPACE_ASPECT;
+  const h = size.y * heightFrac;
+  const w = h * aspect;
+  return { w, h, aspect, heightFrac };
+}
+
+/* PHASE 5 — BỀ MẶT IN THẬT (raycast), không đoán hướng model.
+   Mỗi GLB có thể quay mặt trước về +Z hoặc -Z. Trước đây decal được đặt cứng
+   ở box.max.z + lọc tam giác theo dấu nz → với hoodie, ảnh in rơi vào MẶT
+   TRONG của áo và chỉ lọt ra qua khe cổ/khoá (ảnh gần như vô hình, nhìn như
+   "biến dạng"). Cách làm mới: raycast từ ngoài vào tâm vùng in để tìm BỀ MẶT
+   NGOÀI thật của từng mặt, rồi đặt decal đúng trên bề mặt đó và lọc tam giác
+   theo pháp tuyến của chính bề mặt ấy. Nhờ vậy garment nào (kể cả polo sau
+   này) cũng in đúng mặt đang nhìn mà không cần hardcode hướng. */
+const PRINT_SURFACE_CACHE = new Map(); // key: `${productType}:${side}`
+
+function resolvePrintSurface(side) {
+  if (!viewer.bounds || !viewer.model || !viewer.shirtMeshes.length) return null;
+  const key = `${viewer.productType}:${side}`;
+  if (PRINT_SURFACE_CACHE.has(key)) return PRINT_SURFACE_CACHE.get(key);
+  const { size, center } = viewer.bounds;
+  const entry = GARMENT_REGISTRY[viewer.productType];
+  const decalCfg = (entry && entry.decal) || { liftY: 0.03 };
+  const L = Math.max(size.x, size.y, size.z) * 1.5;
+  const targetY = center.y + size.y * decalCfg.liftY;
+  const aim = new THREE.Vector3(center.x, targetY, center.z);
+  const raycaster = new THREE.Raycaster();
+  const nominal = side === 'back' ? -1 : 1;
+  let result = null;
+  // Ưu tiên phía nominal (mặt trước = +Z, mặt sau = -Z); nếu model quay ngược
+  // thì tự động lấy phía còn lại.
+  for (const s of [nominal, -nominal]) {
+    raycaster.set(new THREE.Vector3(aim.x, aim.y, aim.z + s * L), new THREE.Vector3(0, 0, -s));
+    raycaster.far = L * 2.5;
+    const hits = raycaster.intersectObjects(viewer.shirtMeshes, false);
+    const hit = hits.find((h) => {
+      if (!h.face) return false;
+      const n = h.face.normal.clone().transformDirection(h.object.matrixWorld);
+      return Math.abs(n.z) > 0.25; // bỏ qua mảnh vải hẹp (khoá áo, viền...)
+    });
+    if (!hit) continue;
+    const normal = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+    result = {
+      point: hit.point.clone(),
+      normal,
+      sign: normal.z >= 0 ? 1 : -1,
+      meshName: hit.object.name || '',
+    };
+    break;
+  }
+  PRINT_SURFACE_CACHE.set(key, result);
+  debug3d('printSurface', key, result ? `${result.meshName} sign=${result.sign}` : 'unresolved');
+  return result;
+}
+
 const GARMENT_REGISTRY = {
   tshirt: {
     id: 'tshirt',
@@ -22,11 +94,13 @@ const GARMENT_REGISTRY = {
     available3D: true,
     // Mesh mapping for this garment's printable area.
     decalTarget: /FRONT/i,
-    // Decal placement relative to model bounds (chest print area).
-    decal: { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 },
+    // Decal placement relative to model bounds (depth/lift only — kích thước
+    // plane do `print` quyết định).
+    decal: { depthK: 1.8, liftY: 0.03, liftZ: 0.012 },
+    // Vùng in ngực: cao 36% chiều cao áo, aspect = design space (1:1).
+    print: { configured: true, heightFrac: 0.36, aspect: DESIGN_SPACE_ASPECT },
     // Camera framing relative to model bounds.
     camera: { distanceK: 2.45, heightK: 0.06 },
-    printArea: { configured: true },
   },
   hoodie: {
     id: 'hoodie',
@@ -38,9 +112,11 @@ const GARMENT_REGISTRY = {
     // front fabrics; color tints the whole garment (incl. side panels).
     decalTarget: /FRONT/i,
     colorTarget: /./,
-    decal: { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 },
+    decal: { depthK: 1.8, liftY: 0.03, liftZ: 0.012 },
+    // CÙNG một spec design-space như tshirt → ảnh in không bị biến dạng khi
+    // chuyển áo: chỉ khác kích thước vật lý, không khác aspect.
+    print: { configured: true, heightFrac: 0.36, aspect: DESIGN_SPACE_ASPECT },
     camera: { distanceK: 2.45, heightK: 0.06 },
-    printArea: { configured: true },
   },
   polo: {
     id: 'polo',
@@ -50,7 +126,7 @@ const GARMENT_REGISTRY = {
     decalTarget: null,
     decal: null,
     camera: null,
-    printArea: { configured: false },
+    print: { configured: false },
   },
 };
 
@@ -77,7 +153,13 @@ const viewer = {
   decalsHidden: false,
   applyToken: 0,
   onDecalSwap: null,
+  // PHASE 4: cache model đã parse theo product (bounded) — switch qua lại
+  // KHÔNG tải lại GLB 2.4–3.6MB và không parse lại mỗi lần bấm.
+  modelCache: new Map(),
+  applyLog: [], // PHASE 5: nhật ký dựng decal (evidence cho race/async)
 };
+
+const MODEL_CACHE_MAX = 2;
 
 window.tshirt360Viewer = {
   // onDecalSwap do studio.js gán qua window object, nhưng applyDesigns đọc từ
@@ -118,10 +200,14 @@ window.tshirt360Viewer = {
   // khi vừa nhấn kéo, không thu lại khi thả).
   getDecalScreenWidth(side = 'front') {
     if (!viewer.ready || !viewer.decalMeshes.length || !viewer.camera) return 0;
-    const mesh = viewer.decalMeshes.find((m) => m.userData?.side === side) || viewer.decalMeshes[0];
-    if (!mesh) return 0;
+    // PHASE 5: đo HỢP của mọi patch thuộc mặt đang xét. Trước đây lấy patch
+    // ĐẦU TIÊN → trên hoodie patch đầu là dải khoá áo mỏng (8px) nên preview
+    // kéo/boundary bị bé tí dù vùng in thật rộng.
+    const sidePatches = viewer.decalMeshes.filter((m) => (m.userData?.side || 'front') === side);
+    const patches = sidePatches.length ? sidePatches : viewer.decalMeshes;
     try {
-      const box = new THREE.Box3().setFromObject(mesh);
+      const box = new THREE.Box3();
+      patches.forEach((m) => box.union(new THREE.Box3().setFromObject(m)));
       if (box.isEmpty()) return 0;
       const rect = canvas.getBoundingClientRect();
       let minX = Infinity, maxX = -Infinity;
@@ -141,28 +227,35 @@ window.tshirt360Viewer = {
   /* CHUYỂN ĐỔI TỌA ĐỘ ĐÚNG THEO PIXEL 3D — chìa khóa hết lệch drag:
      điểm (px, py) theo % vị trí composite (hệ tạo ảnh in) → tọa độ màn hình
      thật. Cách làm: điểm 3D trên mặt decal plane = center + offset theo tỷ lệ
-     decal (decal chiếm scaleX×scaleY kích thước áo, composite 1024 map trọn
+     decal (decal chiếm vùng in theo PRINT projection spec, composite 1024 map trọn
      vào decal) → project qua camera → pixel. Studio dùng để đặt preview/ghost
      đúng pixel nơi ảnh sẽ in, kéo tới đâu thấy đúng đó. */
   screenPosFromPrintPoint(px, py, side = 'front') {
     if (!viewer.ready || !viewer.camera || !viewer.bounds) return null;
     try {
       const entry = GARMENT_REGISTRY[viewer.productType];
-      const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36, liftY: 0.06 };
+      const decalCfg = (entry && entry.decal) || { liftY: 0.03 };
       const { size, center } = viewer.bounds;
       // Bán kính decal trên thân áo (theo 2 trục). Điểm (px,py) hệ %: tâm (0,0).
-      const decalW = size.x * decalCfg.scaleX;
-      const decalH = size.y * decalCfg.scaleY;
+      // Kích thước plane lấy từ PRINT PROJECTION SPEC (aspect bất biến theo áo).
+      const projSize = printProjectionSize(entry, size);
+      const decalW = projSize.w;
+      const decalH = projSize.h;
       const x = center.x + (px / 100) * (decalW / 2);
       // Trục Y thế giới: py dương = XUỐNG dưới (hệ ảnh) → trừ.
       // printCenterOffset: hệ tạo ảnh đặt tâm dọc ở 44% cao vùng in (decal
       // origin tại 50%) → dịch +6% để khớp pixel với bản in thật.
       const printCenterOffset = 0.06 * decalH;
       const yFinal = center.y + size.y * decalCfg.liftY - (py / 100) * (decalH / 2) + printCenterOffset;
-      const sideSign = side === 'back' ? -1 : 1;
-      const zBase = side === 'back'
-        ? viewer.bounds.box.min.z - size.z * decalCfg.liftZ
-        : viewer.bounds.box.max.z + size.z * decalCfg.liftZ;
+      // PHASE 5: z lấy từ bề mặt in thật (raycast) → preview/ghost/kéo khớp
+      // đúng chỗ ảnh được in, kể cả khi model quay mặt khác hướng.
+      const surface = resolvePrintSurface(side);
+      const sideSign = surface ? surface.sign : (side === 'back' ? -1 : 1);
+      const zBase = surface
+        ? surface.point.z + sideSign * size.z * decalCfg.liftZ
+        : (side === 'back'
+          ? viewer.bounds.box.min.z - size.z * decalCfg.liftZ
+          : viewer.bounds.box.max.z + size.z * decalCfg.liftZ);
       // Nới z về phía camera 1 chút để project không bị mặt áo che.
       const z = zBase + sideSign * size.z * 0.05;
       const rect = canvas.getBoundingClientRect();
@@ -179,10 +272,10 @@ window.tshirt360Viewer = {
     const dw = this.getDecalScreenWidth(side);
     if (!dw) return null;
     const entry = GARMENT_REGISTRY[viewer.productType];
-    const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36 };
     const { size } = viewer.bounds;
-    // Tỷ lệ W:H của decal theo cfg (scaleX trên size.x, scaleY trên size.y).
-    const ratio = (size.y * decalCfg.scaleY) / (size.x * decalCfg.scaleX);
+    // Tỷ lệ W:H của vùng in = aspect design space (1:1) → không phụ thuộc model.
+    const proj = printProjectionSize(entry, size);
+    const ratio = proj.h / proj.w;
     return { w: dw, h: dw * ratio };
   },
   setColor(color) {
@@ -235,6 +328,86 @@ window.tshirt360Viewer = {
       name: g.name,
       available3D: !!(g.available3D && g.modelUrl),
     }));
+  },
+  // PHASE 5: log ngắn (bounded) các lần dựng decal — dùng để chứng minh không
+  // có race/lần dựng nào bị bỏ rơi khi đổi sản phẩm.
+  getApplyLog() {
+    return viewer.applyLog.slice(-20);
+  },
+  // PHASE 5: chẩn đoán mapping vải → decal (read-only). Cho biết mesh nào đang
+  // nhận decal và kích thước THẬT của từng patch — dùng để phát hiện decal in
+  // nhầm lên vải lót (fleece lining) khiến ảnh in gần như vô hình / méo.
+  getDecalMeshDebug() {
+    if (!viewer.model) return null;
+    const box3 = new THREE.Box3();
+    const meshes = [];
+    viewer.model.traverse((o) => {
+      if (!o.isMesh) return;
+      box3.setFromObject(o);
+      const s = box3.getSize(new THREE.Vector3());
+      const mats = (Array.isArray(o.material) ? o.material : [o.material]).map((m) => m?.name || '');
+      meshes.push({
+        name: o.name || '',
+        materials: mats,
+        size: { x: +s.x.toFixed(3), y: +s.y.toFixed(3), z: +s.z.toFixed(3) },
+        isDecalTarget: viewer.shirtMeshes.includes(o),
+      });
+    });
+    const patches = viewer.decalMeshes.map((m) => {
+      box3.setFromObject(m);
+      const s = box3.getSize(new THREE.Vector3());
+      const c = box3.getCenter(new THREE.Vector3());
+      return { side: m.userData?.side || null, size: { x: +s.x.toFixed(3), y: +s.y.toFixed(3) },
+               z: { min: +box3.min.z.toFixed(3), max: +box3.max.z.toFixed(3) },
+               center: { x: +c.x.toFixed(3), y: +c.y.toFixed(3), z: +c.z.toFixed(3) },
+               visible: m.visible, inScene: !!m.parent, renderOrder: m.renderOrder,
+               tris: m.geometry?.attributes?.position ? m.geometry.attributes.position.count / 3 : 0 };
+    });
+    const mb = new THREE.Box3().setFromObject(viewer.model);
+    return {
+      product: viewer.productType, meshes, decalPatches: patches,
+      modelBounds: { minZ: +mb.min.z.toFixed(3), maxZ: +mb.max.z.toFixed(3),
+                     minY: +mb.min.y.toFixed(3), maxY: +mb.max.y.toFixed(3) },
+      camera: viewer.camera ? { x: +viewer.camera.position.x.toFixed(3), y: +viewer.camera.position.y.toFixed(3), z: +viewer.camera.position.z.toFixed(3) } : null,
+    };
+  },
+  // PHASE 5: introspection cho test/evidence — spec projection của garment hiện
+  // tại. decalAspectHW phải LUÔN xấp xỉ designSpaceAspect (1:1) trên mọi áo;
+  // đây là thước đo trực tiếp độ biến dạng artwork khi đổi sản phẩm.
+  getPrintProjection() {
+    if (!viewer.bounds) return null;
+    const entry = GARMENT_REGISTRY[viewer.productType];
+    const { size } = viewer.bounds;
+    const proj = printProjectionSize(entry, size);
+    return {
+      product: viewer.productType,
+      modelSize: { x: size.x, y: size.y, z: size.z },
+      print: { w: proj.w, h: proj.h, heightFrac: proj.heightFrac, aspect: proj.aspect },
+      decalAspectHW: proj.h / proj.w,
+      designSpaceAspect: DESIGN_SPACE_ASPECT,
+      decalCount: viewer.decalMeshes.length,
+      // Bề mặt in thật mà raycast tìm được (mặt người dùng đang nhìn).
+      printSurface: (() => {
+        const s = resolvePrintSurface('front');
+        return s ? { mesh: s.meshName, sign: s.sign,
+                     point: { x: +s.point.x.toFixed(3), y: +s.point.y.toFixed(3), z: +s.point.z.toFixed(3) },
+                     normal: { x: +s.normal.x.toFixed(3), y: +s.normal.y.toFixed(3), z: +s.normal.z.toFixed(3) } }
+                 : null;
+      })(),
+    };
+  },
+  // PHASE 4: introspection cho test/evidence — đếm model product đang sống trong scene.
+  getProductModelCounts() {
+    if (!viewer.scene) return { total: 0, byProduct: {} };
+    const byProduct = {};
+    let total = 0;
+    viewer.scene.traverse((obj) => {
+      if (obj.userData && obj.userData.productType) {
+        byProduct[obj.userData.productType] = (byProduct[obj.userData.productType] || 0) + 1;
+        total++;
+      }
+    });
+    return { total, byProduct };
   },
 };
 
@@ -331,17 +504,26 @@ function setProduct(productType) {
     return { status: 'unavailable', productType: entry.id };
   }
   viewer.productType = entry.id;
+  // PHASE 4: model đã từng load → kích hoạt tức thì từ cache (0 network, 0 parse).
+  const cachedEntry = viewer.modelCache.get(entry.id);
+  if (cachedEntry) {
+    viewer.loadToken += 1; // vô hiệu hoá mọi GLB load đang bay
+    activateModel(cachedEntry, entry, { fromCache: true });
+    return { status: 'ready', productType: entry.id, fromCache: true };
+  }
   loadGarmentModel(entry);
   return { status: viewer.ready && viewer.modelUrl === entry.modelUrl ? 'ready' : 'loading', productType: entry.id };
 }
 
 function enterUnavailableState(entry) {
   // Controlled state: do NOT touch another garment's model as a fake.
-  // Dispose the current model so the canvas never shows the wrong garment.
+  // Gỡ model hiện tại khỏi scene (model vẫn nằm trong cache để quay lại tức thì)
+  // — canvas không bao giờ hiển thị sai loại áo.
   debug3d('setProduct: unavailable, entering controlled state', entry.id);
   viewer.loadToken += 1; // invalidate any in-flight load
   viewer.productType = entry.id;
-  disposeCurrentModel();
+  detachCurrentModel();
+  pruneModelCache(entry.id);
   viewer.ready = false;
   viewer.modelLoading = false;
   container.classList.remove('viewer-loading', 'has-real-3d');
@@ -359,35 +541,86 @@ function exitUnavailableState() {
   if (msg) msg.hidden = true;
 }
 
-function disposeCurrentModel() {
+/* Gỡ model đang hiển thị khỏi scene NHƯNG không dispose (model nằm trong
+   modelCache để quay lại tức thì). Decal luôn bị gỡ vì geometry decal gắn
+   với mesh của model cũ. */
+function detachCurrentModel() {
   clearDecals();
   if (viewer.model) {
-    viewer.model.traverse((object) => {
-      if (!object.isMesh) return;
-      if (object.geometry) object.geometry.dispose();
-      const materials = Array.isArray(object.material) ? object.material : [object.material];
-      materials.forEach((material) => {
-        if (!material) return;
-        Object.values(material).forEach((value) => {
-          if (value && value.isTexture) value.dispose();
-        });
-        material.dispose();
-      });
-    });
     viewer.scene.remove(viewer.model);
     viewer.model = null;
   }
   viewer.shirtMeshes = [];
   viewer.colorMeshes = [];
   viewer.bounds = null;
+  viewer.ready = false;
+}
+
+/* Giải phóng tài nguyên của MỘT entry cache (chỉ thuộc model đó). */
+function disposeModelEntry(cached) {
+  if (!cached || !cached.model) return;
+  cached.model.traverse((object) => {
+    if (!object.isMesh) return;
+    if (object.geometry) object.geometry.dispose();
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    materials.forEach((material) => {
+      if (!material) return;
+      Object.values(material).forEach((value) => {
+        if (value && value.isTexture) value.dispose();
+      });
+      material.dispose();
+    });
+  });
+}
+
+/* Bounded LRU: tối đa MODEL_CACHE_MAX model sống; vượt thì dispose cái cũ
+   nhất (trừ product đang dùng). Nếu model bị gỡ không nằm trong cache
+   (trường hợp hiếm), dispose luôn để không rò tài nguyên. */
+function pruneModelCache(keepId) {
+  const activeInCache = viewer.model ? [...viewer.modelCache.values()].some((c) => c.model === viewer.model) : false;
+  if (viewer.model && !activeInCache) {
+    disposeModelEntry({ model: viewer.model });
+  }
+  while (viewer.modelCache.size > MODEL_CACHE_MAX) {
+    const victimKey = [...viewer.modelCache.keys()].find((k) => k !== keepId && viewer.modelCache.get(k).model !== viewer.model);
+    if (victimKey === undefined) break;
+    disposeModelEntry(viewer.modelCache.get(victimKey));
+    viewer.modelCache.delete(victimKey);
+    debug3d('pruneModelCache: disposed', victimKey);
+  }
+}
+
+/* PHASE 4: kích hoạt model (vừa load xong hoặc từ cache) — ATOMIC SWAP:
+   model cũ rời scene ngay trước khi model mới vào nên scene KHÔNG BAO GIỜ chứa
+   2 product cùng lúc; design + màu hiện tại được áp lại trên model mới. */
+function activateModel(cached, entry, { fromCache = false } = {}) {
+  detachCurrentModel();
+  exitUnavailableState(); // model thật đang vào → xoá trạng thái "3D đang bổ sung"
+  viewer.model = cached.model;
+  viewer.modelUrl = entry.modelUrl;
+  viewer.shirtMeshes = cached.shirtMeshes;
+  viewer.colorMeshes = cached.colorMeshes;
+  cached.model.userData.productType = entry.id; // introspection: model nào thuộc product nào
+  viewer.scene.add(cached.model);
+  frameModel('front', entry);
+  viewer.ready = true;
+  viewer.modelLoading = false;
+  container.classList.remove('viewer-loading', 'viewer-fallback');
+  container.classList.add('has-real-3d');
+  debug3d('activateModel', entry.id, fromCache ? '(cache)' : '(fresh)', 'meshes=', viewer.shirtMeshes.length);
+  applyColor(viewer.pendingColor);
+  if (viewer.pendingDesignUrls) applyDesigns(viewer.pendingDesignUrls);
+  else if (viewer.pendingDesignUrl) applyDesign(viewer.pendingDesignUrl);
 }
 
 function loadGarmentModel(entry) {
   const token = ++viewer.loadToken;
   viewer.modelLoading = true;
-  viewer.ready = false;
-  exitUnavailableState();
-  container.classList.remove('has-real-3d');
+  // PHASE 4 P0: REPLACE semantics — model cũ và model mới KHÔNG BAO GIỜ cùng
+  // nằm trong scene. Model cũ được giữ hiển thị trong lúc tải (tránh nháy
+  // canvas trống) rồi được gỡ CHÍNH XÁC tại activateModel() khi model mới sẵn
+  // sàng — trước đây onModelLoaded chỉ scene.add() mà không gỡ model cũ, nên
+  // tshirt → hoodie → tshirt để lại 3 model chồng nhau trong scene.
   container.classList.add('viewer-loading');
   debug3d('loadGarmentModel: start', entry.id, entry.modelUrl);
 
@@ -407,12 +640,16 @@ function loadGarmentModel(entry) {
       if (token !== viewer.loadToken) return;
       viewer.modelLoading = false;
       container.classList.remove('viewer-loading');
-      container.classList.add('viewer-fallback');
-      const fallbackMsg = document.createElement('div');
-      fallbackMsg.className = 'viewer-error-msg';
-      fallbackMsg.textContent = 'Không thể tải mô hình 3D — đang hiển thị bản xem 2D.';
-      fallbackMsg.setAttribute('role', 'status');
-      container.appendChild(fallbackMsg);
+      // Load lỗi: KHÔNG để lại model hỏng trong scene. Model cũ (nếu có) vẫn
+      // đang hiển thị nguyên vẹn — chỉ báo lỗi cho user, không dựng model giả.
+      if (!viewer.ready) {
+        container.classList.add('viewer-fallback');
+        const fallbackMsg = document.createElement('div');
+        fallbackMsg.className = 'viewer-error-msg';
+        fallbackMsg.textContent = 'Không thể tải mô hình 3D — đang hiển thị bản xem 2D.';
+        fallbackMsg.setAttribute('role', 'status');
+        container.appendChild(fallbackMsg);
+      }
       console.warn('Could not load 3D garment model:', entry.id, error);
       if (window.showToast) window.showToast('Không thể tải mô hình 3D, đã chuyển sang xem 2D.', 'warning');
     }
@@ -425,6 +662,8 @@ function onModelLoaded(model, entry) {
   // Sketchfab-sourced models use generic node names (Object_N) with the real
   // part names living in MATERIALS — match against both so decalTarget keeps
   // working for curated models (name match) and generic ones (material match).
+  const shirtMeshes = [];
+  const colorMeshes = [];
   const matchTarget = (object) => {
     if (!targetRe) return false;
     if (targetRe.test(object.name || '')) return true;
@@ -435,38 +674,32 @@ function onModelLoaded(model, entry) {
     if (!object.isMesh) return;
     object.castShadow = true;
     object.receiveShadow = true;
-    if (matchTarget(object)) viewer.shirtMeshes.push(object);
+    if (matchTarget(object)) shirtMeshes.push(object);
     if (!colorRe) return;
-    if (colorRe.test(object.name || '')) viewer.colorMeshes.push(object);
+    if (colorRe.test(object.name || '')) colorMeshes.push(object);
     else {
       const materials = Array.isArray(object.material) ? object.material : [object.material];
-      if (materials.some((m) => colorRe.test(m?.name || ''))) viewer.colorMeshes.push(object);
+      if (materials.some((m) => colorRe.test(m?.name || ''))) colorMeshes.push(object);
     }
   });
 
-  if (!viewer.shirtMeshes.length) {
+  if (!shirtMeshes.length) {
     model.traverse((object) => {
-      if (object.isMesh) viewer.shirtMeshes.push(object);
+      if (object.isMesh) shirtMeshes.push(object);
     });
   }
   // Default: color follows the decal set (tshirt behavior unchanged).
-  if (!viewer.colorMeshes.length) viewer.colorMeshes = [...viewer.shirtMeshes];
+  if (!colorMeshes.length) colorMeshes.push(...shirtMeshes);
 
-  viewer.model = model;
-  viewer.modelUrl = entry.modelUrl;
-  viewer.scene.add(model);
-  frameModel('front', entry);
-  viewer.ready = true;
-  viewer.modelLoading = false;
-  container.classList.remove('viewer-loading');
-  container.classList.add('has-real-3d');
-  debug3d('loadGarmentModel: ready', entry.id, 'meshes=', viewer.shirtMeshes.length);
-  applyColor(viewer.pendingColor);
-  if (viewer.pendingDesignUrls) applyDesigns(viewer.pendingDesignUrls);
-  else if (viewer.pendingDesignUrl) applyDesign(viewer.pendingDesignUrl);
+  // PHASE 4: vào cache (bounded) rồi kích hoạt bằng atomic swap.
+  const cached = { model, shirtMeshes, colorMeshes };
+  viewer.modelCache.set(entry.id, cached);
+  activateModel(cached, entry, { fromCache: false });
+  pruneModelCache(entry.id);
 }
 
 function frameModel(side = 'front', entry) {
+  PRINT_SURFACE_CACHE.clear(); // model/bounds có thể đổi → bề mặt in phải tìm lại
   const cfg = (entry && entry.camera) || { distanceK: 2.45, heightK: 0.06 };
   const box = new THREE.Box3().setFromObject(viewer.model);
   const size = box.getSize(new THREE.Vector3());
@@ -551,13 +784,16 @@ function applyDesigns(urls) {
   const requestToken = ++viewer.applyToken;
   viewer.appliedDesignUrls = { ...norm };
   viewer.appliedDesignUrl = norm.front;
+  viewer.applyLog.push({ t: Date.now(), token: requestToken, product: viewer.productType,
+    targets: viewer.shirtMeshes.length, patches: 0, started: true });
+  if (viewer.applyLog.length > 40) viewer.applyLog.shift();
   const oldMeshes = viewer.decalMeshes;
   const newMeshes = [];
   const newUniforms = [];
   let pendingLoads = 0;
 
   const entry = GARMENT_REGISTRY[viewer.productType];
-  const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 };
+  const decalCfg = (entry && entry.decal) || { depthK: 1.8, liftY: 0.03, liftZ: 0.012 };
   const { box, size, center } = viewer.bounds;
   const loader = new THREE.TextureLoader();
   const sides = [];
@@ -583,14 +819,23 @@ function applyDesigns(urls) {
     texture.needsUpdate = true;
 
     const entry = GARMENT_REGISTRY[viewer.productType];
-    const decalCfg = (entry && entry.decal) || { scaleX: 0.42, scaleY: 0.36, depthK: 1.8, liftY: 0.06, liftZ: 0.012 };
+    const decalCfg = (entry && entry.decal) || { depthK: 1.8, liftY: 0.03, liftZ: 0.012 };
     const { box, size, center } = viewer.bounds;
-    // Back decal: phía -Z + quay Y theo PI (đọc đúng chiều khi nhìn từ sau).
-    const position = s.side === 'back'
-      ? new THREE.Vector3(center.x, center.y + size.y * decalCfg.liftY, box.min.z - size.z * decalCfg.liftZ)
-      : new THREE.Vector3(center.x, center.y + size.y * decalCfg.liftY, box.max.z + size.z * decalCfg.liftZ);
-    const orientation = s.side === 'back' ? new THREE.Euler(0, Math.PI, 0) : new THREE.Euler(0, 0, 0);
-    const decalSize = new THREE.Vector3(size.x * decalCfg.scaleX, size.y * decalCfg.scaleY, Math.max(0.08, size.z * decalCfg.depthK));
+    // PHASE 5: đặt decal lên BỀ MẶT NGOÀI thật (raycast) thay vì box.max/min.z
+    // cứng — tránh ảnh in rơi vào mặt trong khi model quay hướng khác.
+    const surface = resolvePrintSurface(s.side);
+    const faceSign = surface ? surface.sign : (s.side === 'back' ? -1 : 1);
+    const position = surface
+      ? new THREE.Vector3(surface.point.x, surface.point.y, surface.point.z + faceSign * size.z * decalCfg.liftZ)
+      : (s.side === 'back'
+        ? new THREE.Vector3(center.x, center.y + size.y * decalCfg.liftY, box.min.z - size.z * decalCfg.liftZ)
+        : new THREE.Vector3(center.x, center.y + size.y * decalCfg.liftY, box.max.z + size.z * decalCfg.liftZ));
+    const orientation = faceSign >= 0 ? new THREE.Euler(0, 0, 0) : new THREE.Euler(0, Math.PI, 0);
+    // PHASE 5: plane decal theo print projection spec — W:H luôn = aspect
+    // design space (1:1), KHÔNG lấy 2 phân số độc lập của bounds nữa (nguồn
+    // gốc ảnh bị kéo giãn khi đổi garment).
+    const proj = printProjectionSize(entry, size);
+    const decalSize = new THREE.Vector3(proj.w, proj.h, Math.max(0.08, size.z * decalCfg.depthK));
 
     viewer.shirtMeshes.forEach((target) => {
       const geometry = new DecalGeometry(target, position, orientation, decalSize);
@@ -601,8 +846,8 @@ function applyDesigns(urls) {
       const norm = geometry.attributes.normal;
       const uvAttr = geometry.attributes.uv;
       const idx = geometry.index;
-      // Phía projector: front = +Z, back = -Z (trục local áo, xấp xỉ Z world).
-      const sideSign = s.side === 'back' ? -1 : 1;
+      // Phía projector lấy từ bề mặt thật đã raycast (không giả định hướng model).
+      const sideSign = faceSign;
       const keep = [];
       const triCount = idx ? idx.count / 3 : pos.count / 3;
       for (let t = 0; t < triCount; t++) {
@@ -694,7 +939,14 @@ function applyDesigns(urls) {
       // Chưa add vào scene — đợi đủ texture của mọi mặt rồi swap nguyên khối.
       newMeshes.push(decal);
       newUniforms.push(uniforms);
-      pendingLoads -= 1;
+    });
+    /* PHASE 5 — GỐC RỄ: dòng giảm bộ đếm + swap trước đây nằm TRONG
+       forEach từng mảnh vải, nên garment nhiều mảnh (hoodie: 4 mesh) swap
+       ngay ở patch ĐẦU TIÊN; các patch sau được tạo nhưng không bao giờ vào
+       scene (đồng thời leak geometry/material) → ảnh in hoodie gần như vô
+       hình, chỉ còn dải khoá áo lọt qua khe. Giờ chỉ swap khi MỌI mảnh vải
+       của mặt đó đã tạo xong patch. */
+    pendingLoads -= 1;
       if (pendingLoads === 0) {
         if (requestToken !== viewer.applyToken) {
           // Request đã bị thay thế — dọn mesh chưa từng vào scene.
@@ -706,6 +958,9 @@ function applyDesigns(urls) {
         newMeshes.forEach((m) => { m.visible = !viewer.decalsHidden; viewer.scene.add(m); });
         viewer.decalMeshes = newMeshes;
         viewer.decalUniforms = newUniforms;
+        viewer.applyLog.push({ t: Date.now(), token: requestToken, product: viewer.productType,
+          targets: viewer.shirtMeshes.length, patches: newMeshes.length, swapped: true });
+        if (viewer.applyLog.length > 40) viewer.applyLog.shift();
         // Studio dùng để biết decal đã "đổ bộ" — tắt preview 2D NGAY SAU KHI
         // decal mới đã sẵn sàng (không có khoảng trống hình ảnh = không nháy).
         if (typeof viewer.onDecalSwap === 'function') {
@@ -713,8 +968,7 @@ function applyDesigns(urls) {
           viewer.onDecalSwap = null;
           try { cb(); } catch (e) { /* */ }
         }
-      }
-    });
+    }
   }, undefined, (err) => {
     pendingLoads -= 1; // lỗi 1 mặt vẫn cho các mặt còn lại swap được
     console.warn('[3D] Failed to load decal texture:', s.url, err);

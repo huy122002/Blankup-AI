@@ -144,6 +144,7 @@ const state = {
   selectedLayerId: { front: null, back: null },
   lastGenerated: { front: null, back: null },
   customText: '',
+  groupMoveMode: false, // "Kéo chung": ảnh + chữ di chuyển cùng lúc
   printPlacement: { x: 0, y: -12, scale: 1 },
   textPlacement: { x: 0, y: 18, scale: 1 },
   sidePrintPlacement: { front: null, back: null },
@@ -152,6 +153,7 @@ const state = {
   compositeCacheKey: '',
   interactionMode: 'position',
   activePlacementLayer: 'image',
+  orderIdempotencyKey: '', // 1 lượt đặt hàng = 1 key (xem newOrderIdempotencyKey)
   isGeneratingAi: false,
   customTextSides: { front: '', back: '' },
   // Kiểu chữ per side (slogan) — getSideTextStyle merge DEFAULT_TEXT_STYLE.
@@ -168,6 +170,9 @@ const state = {
   assetLibrary: [],
   // Pending reference asset for AI generation
   pendingReferenceAssetId: null,
+  // PHASE 4 — persistent saved design identity (null = design mới chưa lưu)
+  savedDesignId: null,
+  savedDesignName: null,
 };
 
 function getFrontDesignUrl(d = state.currentDesign) { return d?.frontDesignUrl || d?.designUrl || ''; }
@@ -207,6 +212,30 @@ function getSideTextPlacement(side = state.currentView) {
   if (stored) return stored;
   return { x: 0, y: k === 'back' ? 16 : 18, scale: 1 };
 }
+/* PHASE 1 — rotation + lock cho TEXT (slogan), per side. Lưu trong
+   sideTextPlacement (rotation) + sideTextLocked — đi vào composite cache key,
+   snapshot undo và saveToHistory tự động. */
+function getSideTextRotation(side = state.currentView) {
+  const k = sideKey(side);
+  return Number(state.sideTextPlacement?.[k]?.rotation) || 0;
+}
+function commitTextRotation(side, deg) {
+  const k = sideKey(side);
+  const cur = state.sideTextPlacement[k] || { ...state.textPlacement };
+  cur.rotation = ((Math.round(Number(deg) || 0) % 360) + 360) % 360;
+  state.sideTextPlacement[k] = cur;
+  state.textPlacement = { ...cur };
+  state.compositeCacheKey = '';
+}
+function getSideTextLocked(side = state.currentView) {
+  return state.sideTextLocked?.[sideKey(side)] === true;
+}
+function commitTextLocked(side, val) {
+  const k = sideKey(side);
+  state.sideTextLocked = state.sideTextLocked || { front: false, back: false };
+  state.sideTextLocked[k] = !!val;
+  state.compositeCacheKey = '';
+}
 /* Kiểu chữ per side — stored chỉ lưu các field người dùng đã chạm
    (merge DEFAULT để tương thích dữ liệu cũ). */
 function getSideTextStyle(side = state.currentView) {
@@ -225,9 +254,18 @@ function commitActivePlacements() {
   // slider, nudge, preset) đều đi qua đây → clamp layer vào vùng in áo.
   const sel = getSelectedLayer(k);
   if (sel) clampLayerToPrintArea(sel);
-  state.sidePrintPlacement[k] = { ...state.printPlacement };
-  state.sideTextPlacement[k] = { ...state.textPlacement };
-  state.compositeCacheKey = '';
+  // PHASE 3: chỉ clear composite cache khi placement THỰC SỰ đổi.
+  // Mọi thứ ảnh hưởng composite (layer x/y/scale/rot, sideTextPlacement) đã nằm
+  // trong getCompositeCacheKey() — clear vô điều kiện khiến mỗi lần đổi mặt áo
+  // (gọi commit khi load placements) rebuild lại cả 2 composite thừa.
+  const prevP = state.sidePrintPlacement[k];
+  const prevT = state.sideTextPlacement[k];
+  const nextP = { ...state.printPlacement };
+  const nextT = { ...state.textPlacement };
+  const changed = !prevP || !prevT || JSON.stringify(prevP) !== JSON.stringify(nextP) || JSON.stringify(prevT) !== JSON.stringify(nextT);
+  state.sidePrintPlacement[k] = nextP;
+  state.sideTextPlacement[k] = nextT;
+  if (changed) state.compositeCacheKey = '';
 }
 function loadPlacementsForSide(side) {
   state.printPlacement = { ...getSidePrintPlacement(side) };
@@ -243,7 +281,8 @@ function updateSideBadge() {
   const badge = document.getElementById('viewerSideBadge');
   if (badge) {
     const back = state.currentView === 'back';
-    badge.textContent = back ? 'MẶT SAU' : 'MẶT TRƯỚC';
+    const textMode = state.activePlacementLayer === 'text' && getSideCustomText(state.currentView);
+    badge.textContent = (back ? 'MẶT SAU' : 'MẶT TRƯỚC') + (textMode ? ' · CHỮ' : '');
     badge.classList.toggle('is-back', back);
   }
   const tag = document.getElementById('placementSideTag');
@@ -273,10 +312,12 @@ function updateBackDesignControls() {
 function initBackDesignControls() {
   document.getElementById('backGenerateBtn')?.addEventListener('click', () => { switchPromptSide('back'); generateFromPrompt('back'); });
   document.getElementById('backClearBtn')?.addEventListener('click', () => {
+    beginDesignUndoBatch('clear-back');
     clearSideLayers('back');
     state.preparedDesignUrls.back = null;
     if (state.currentDesign) state.currentDesign.backDesignUrl = '';
     state.compositeCacheKey = '';
+    pushDesignUndo('clear-back');
     updateDesignOverlayForSide();
     applyCurrentDesignToViewer();
     updateBackDesignControls();
@@ -287,12 +328,18 @@ function initBackDesignControls() {
   updateBackDesignControls();
 }
 function getCompositeCacheKey() {
-  const snap = (side) => sideLayers(side).map(l => [l.id, l.url, l.x, l.y, l.scale, l.rotation, l.visible, l.z]);
+  const snap = (side) => sideLayers(side).map(l => [l.id, l.url, l.x, l.y, l.scale, l.rotation, l.visible, l.z, l.locked, l.opacity, l.crop ? 1 : 0, l.assetId, l.kind, l.name, l.prompt, l.style]);
+  // JSON.stringify sánh nông các mảng lồng — cần key bổ sung khi có state đặc biệt:
+  if (state.designLayers.front.some(l => l.crop) || state.designLayers.back.some(l => l.crop)) {
+    return JSON.stringify({ f: snap('front'), b: snap('back'), crops: { front: state.designLayers.front.map(l => l.crop), back: state.designLayers.back.map(l => l.crop) },
+      customText: state.customText, customTextSides: state.customTextSides, sideTextPlacement: state.sideTextPlacement, sideTextStyle: state.sideTextStyle, sideTextLocked: state.sideTextLocked });
+  }
   return JSON.stringify({
     front: snap('front'), back: snap('back'),
     customText: state.customText, customTextSides: state.customTextSides,
     sideTextPlacement: state.sideTextPlacement,
     sideTextStyle: state.sideTextStyle,
+    sideTextLocked: state.sideTextLocked,
   });
 }
 
@@ -587,27 +634,101 @@ function failGenProgress(message = 'Vui lòng thử lại sau') {
 /* ============================================================
    COMPOSITE DESIGN (canvas overlay for text + image)
    ============================================================ */
+/* Cache Image đã decode cho composite (PHASE 3): cùng URL không decode lại.
+   Giới hạn 50 entries LRU — URL là key (dataURL/server path), value là HTMLImageElement.
+   Ảnh lỗi (rejected promise) cũng cache để tránh retry-spam mỗi composite rebuild. */
+const IMG_DECODE_CACHE = new Map();
+const IMG_DECODE_CACHE_MAX = 50;
 function loadImageForCanvas(url) {
-  return new Promise((resolve, reject) => {
-    if (!url) return resolve(null);
+  if (!url) return Promise.resolve(null);
+  if (IMG_DECODE_CACHE.has(url)) {
+    const hit = IMG_DECODE_CACHE.get(url);
+    // LRU: đẩy lại cuối map trước khi trả.
+    IMG_DECODE_CACHE.delete(url); IMG_DECODE_CACHE.set(url, hit);
+    return hit;
+  }
+  const p = new Promise((resolve, reject) => {
     const img = new Image(); img.crossOrigin = 'anonymous';
-    img.onload = () => resolve(img); img.onerror = reject; img.src = url;
+    img.onload = () => resolve(img);
+    img.onerror = () => {
+      // PHASE 3: lỗi load (mạng tạm thời, 404…) → gỡ khỏi cache để lần sau
+      // được retry; không cache reject vĩnh viễn.
+      IMG_DECODE_CACHE.delete(url);
+      reject(new Error('Image decode failed'));
+    };
+    img.src = url;
   });
+  IMG_DECODE_CACHE.set(url, p);
+  if (IMG_DECODE_CACHE.size > IMG_DECODE_CACHE_MAX) {
+    IMG_DECODE_CACHE.delete(IMG_DECODE_CACHE.keys().next().value);
+  }
+  return p;
+}
+
+/* PHASE 5 SVG P0 — Chromium KHÔNG rasterize được ảnh SVG qua dạng 9 tham số
+   `drawImage(img, sx, sy, sw, sh, …)` (source-rect): nó vẽ ra 0 pixel, im lặng.
+   Đo thật: raster+crop = 88,506 px | SVG no-crop = 10,438 px | SVG+crop = 0 px.
+   Hệ quả trước fix: layer sticker (SVG) + crop biến mất khỏi composite → decal
+   3D → Print Preview → đơn in, dù overlay 2D vẫn hiển thị.
+   Fix: rasterize SVG MỘT LẦN vào offscreen canvas (đúng intrinsic size, giữ
+   aspect ratio + alpha) rồi dùng canvas đó làm nguồn cho đường crop — canvas
+   là bitmap nên source-rect hoạt động đúng. Asset gốc không bị sửa. */
+function isSvgSource(url) {
+  const u = String(url || '');
+  return /^data:image\/svg\+xml/i.test(u) || /\.svg(?:[?#]|$)/i.test(u);
+}
+const SVG_RASTER_CACHE = new Map(); // url → Promise<HTMLCanvasElement> (chỉ cache thành công)
+const SVG_RASTER_CACHE_MAX = 24;
+function rasterizeSvgSource(url, img) {
+  if (SVG_RASTER_CACHE.has(url)) {
+    const hit = SVG_RASTER_CACHE.get(url);
+    SVG_RASTER_CACHE.delete(url); SVG_RASTER_CACHE.set(url, hit); // LRU touch
+    return hit;
+  }
+  const p = (async () => {
+    const W = Math.max(1, img.naturalWidth || img.width || 512);
+    const H = Math.max(1, img.naturalHeight || img.height || 512);
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const cx = cv.getContext('2d');
+    cx.drawImage(img, 0, 0, W, H); // bitmap-through-bitmap: an toàn cho SVG
+    return cv;
+  })().catch((err) => {
+    SVG_RASTER_CACHE.delete(url); // fail KHÔNG bị cache → lần sau retry được
+    throw err;
+  });
+  SVG_RASTER_CACHE.set(url, p);
+  if (SVG_RASTER_CACHE.size > SVG_RASTER_CACHE_MAX) {
+    SVG_RASTER_CACHE.delete(SVG_RASTER_CACHE.keys().next().value);
+  }
+  return p;
 }
 
 async function drawLayerOnContext(ctx, size, layer) {
   // Same mapping as the 2D overlay so 2D == composite == 3D decal.
+  // Hỗ trợ non-destructive crop (vẽ đúng vùng crop của asset gốc) + opacity.
   try {
     const img = await loadImageForCanvas(layer.url);
     if (!img) return;
+    const c = (layer.crop && layer.crop.w > 0 && layer.crop.h > 0) ? layer.crop : null;
+    // Đường crop: SVG phải đi qua bản raster (xem rasterizeSvgSource).
+    // Raster giữ nguyên đường cũ (không copy thêm, không đổi chất lượng).
+    let src = img;
+    if (c && isSvgSource(layer.url)) src = await rasterizeSvgSource(layer.url, img);
+    if (!src) return;
+    const srcW = Math.max(1, src.width || img.width), srcH = Math.max(1, src.height || img.height);
+    const sx = c ? c.x * srcW : 0, sy = c ? c.y * srcH : 0;
+    const sw = c ? c.w * srcW : srcW, sh = c ? c.h * srcH : srcH;
     const maxW = size * 0.58 * layer.scale, maxH = size * 0.58 * layer.scale;
-    const ratio = Math.min(maxW / img.width, maxH / img.height);
-    const w = img.width * ratio, h = img.height * ratio;
+    const ratio = Math.min(maxW / sw, maxH / sh);
+    const w = sw * ratio, h = sh * ratio;
     const cx = size * (0.5 + layer.x / 100), cy = size * (0.44 + layer.y / 100);
     ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, Number(layer.opacity) || 0));
     ctx.translate(cx, cy);
     ctx.rotate(((layer.rotation || 0) * Math.PI) / 180);
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    if (c) ctx.drawImage(src, sx, sy, sw, sh, -w / 2, -h / 2, w, h);
+    else ctx.drawImage(src, -w / 2, -h / 2, w, h);
     ctx.restore();
   } catch (e) {
     console.warn('Composite print error:', e);
@@ -641,6 +762,10 @@ async function buildSideComposite(side = state.currentView) {
    (Playfair chỉ có 500/600; DM Mono 400/500) để canvas không giả lập đậm ảo. */
 function drawStyledText(ctx, size, rawText, tp, style) {
   const st = { ...DEFAULT_TEXT_STYLE, ...(style || {}) };
+  if (tp && Number.isFinite(tp.opacity)) ctx.globalAlpha = Math.max(0, Math.min(1, Number(tp.opacity) || 0)); // khôi phục tạm — save/restore bên dưới giữ sạch
+  // PHASE 1: rotation text — xoay quanh TÂM CHỮ (khớp transform-origin 0 0
+  // của overlay: rotate được áp trước translate trong CSS => cùng tâm).
+  const textRot = Number(tp?.rotation) || 0;
   const fontDef = TEXT_FONTS[st.font] || TEXT_FONTS.display;
   const weight = Math.min(st.weight, fontDef.weightCap);
   const text = applyTextTransform(rawText, st.transform);
@@ -648,6 +773,8 @@ function drawStyledText(ctx, size, rawText, tp, style) {
   const fs = Math.max(34, 82 * tp.scale);
   const x = size * (0.5 + tp.x / 100), y = size * (0.5 + tp.y / 100);
   ctx.save();
+  // Xoay quanh điểm neo chữ (x,y) — trùng tâm chữ vì textAlign=center/baseline=middle.
+  if (textRot) { ctx.translate(x, y); ctx.rotate((textRot * Math.PI) / 180); ctx.translate(-x, -y); }
   ctx.font = `${st.italic ? 'italic ' : ''}${weight} ${fs}px ${fontDef.stack}`;
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.letterSpacing = `${Math.round(fs * (st.spacing || 0) / 100)}px`;
@@ -656,6 +783,7 @@ function drawStyledText(ctx, size, rawText, tp, style) {
   ctx.lineJoin = 'round'; ctx.miterLimit = 2;
   ctx.strokeStyle = st.stroke ? getInkContrast(st.color) : 'transparent';
   ctx.fillStyle = st.color;
+  ctx.globalAlpha = Math.max(0, Math.min(1, Number(tp?.opacity) || 1)); // opacity chữ (composite = preview)
   if (ctx.lineWidth > 0) ctx.strokeText(text, x, y);
   ctx.fillText(text, x, y);
   if (st.underline) {
@@ -687,7 +815,7 @@ async function buildCompositePrintUrl(designUrl, side = state.currentView) {
   const size = 1024;
   const canvas = document.createElement('canvas'); canvas.width = size; canvas.height = size;
   const ctx = canvas.getContext('2d'); ctx.clearRect(0, 0, size, size);
-  await drawLayerOnContext(ctx, size, { url: designUrl, x: 0, y: -12, scale: 1, rotation: 0 });
+  await drawLayerOnContext(ctx, size, { url: designUrl, x: 0, y: -12, scale: 1, rotation: 0, opacity: 1, crop: null });
   if (sideText) {
     drawStyledText(ctx, size, sideText, getSideTextPlacement(k), getSideTextStyle(k));
   }
@@ -734,24 +862,35 @@ function beginLayerDragPreview(src, rect, startX, startY, scale = 1, opts = {}) 
   // composite × scale — thiếu phép nhân này là nguồn gốc ảnh bị phóng to
   // bằng cả mặt in khi vừa nhấn kéo, thả ra mới co về. Ưu tiên: decal thật
   // > rect overlay hiển thị > ước lượng cuối cùng.
-  let w = 0;
-  // ratio: tỉ lệ bề rộng thực của nội dung trong composite (layer ảnh = 0.58;
-  // chữ ngắn hơn nên ~0.4 — thiếu hiệu chỉnh này preview chữ to quá).
-  const contentRatio = opts.ratio || 0.58;
-  try {
-    const dw = Math.round(window.tshirt360Viewer?.getDecalScreenWidth?.(state.currentView) || 0);
-    if (dw > 0) w = Math.max(40, Math.round(dw * contentRatio * (scale || 1)));
-  } catch (e) { w = 0; }
+  // ƯU TIÊN 1: rect projection THẬT truyền qua opts.rectPx (chữ ở 3D — đo
+  // bằng screenPosFromPrintPoint, đúng pixel hiển thị trên áo).
+  // ƯU TIÊN 2: rect px truyền vào (ảnh — giờ cũng đo bằng projection).
+  // ƯU TIÊN CUỐI: ước lượng cũ (decalScreenWidth × ratio) — chỉ khi không đo
+  // được. Thứ tự này hết "preview to ra rồi giật về size decal thật".
+  let w = 0, h = 0, leftPx = null, topPx = null;
   const rectUsable = !!(rect && rect.width > 4);
-  if (!w && rectUsable) w = Math.round(rect.width);
-  if (!w) w = Math.max(40, Math.round(contentRatio * (scale || 1) * 0.30 * (container?.clientWidth || 800)));
+  if (opts.rectPx && opts.rectPx.w > 4) {
+    w = Math.round(opts.rectPx.w); h = Math.round(opts.rectPx.h || 0);
+    leftPx = opts.rectPx.left; topPx = opts.rectPx.top;
+  } else if (rectUsable) {
+    w = Math.round(rect.width); h = Math.round(rect.height || 0);
+  }
+  if (!w) {
+    const contentRatio = opts.ratio || 0.58;
+    try {
+      const dw = Math.round(window.tshirt360Viewer?.getDecalScreenWidth?.(state.currentView) || 0);
+      if (dw > 0) w = Math.max(40, Math.round(dw * contentRatio * (scale || 1)));
+    } catch (e) { w = 0; }
+  }
+  if (!w) w = Math.max(40, Math.round((opts.ratio || 0.58) * (scale || 1) * 0.30 * (container?.clientWidth || 800)));
   const p = document.createElement('img');
   p.src = src;
   p.className = 'studio-drag-preview';
   p.alt = '';
   p.style.width = `${w}px`;
-  p.style.left = `${rectUsable ? rect.left : startX - w / 2}px`;
-  p.style.top = `${rectUsable ? rect.top : startY - w / 2}px`;
+  if (h > 4) p.style.height = `${h}px`; // giữ đúng tỉ lệ decal — không co giãn tự do
+  p.style.left = `${leftPx != null ? leftPx : (rectUsable ? rect.left : startX - w / 2)}px`;
+  p.style.top = `${topPx != null ? topPx : (rectUsable ? rect.top : startY - w / 2)}px`;
   document.body.appendChild(p);
   state.dragPreviewEl = p;
   state.dragPreviewMeta = { left: parseInt(p.style.left, 10), top: parseInt(p.style.top, 10), startX, startY };
@@ -807,9 +946,17 @@ function renderLayersOverlay() {
     return;
   }
   const selected = getSelectedLayer(side);
+  const cropping = isCropMode();
   overlay.innerHTML = layers.map(l => {
     const isSel = selected && selected.id === l.id;
-    const style = `left:0;top:0;width:46%;max-width:320px;transform:translate(calc(-50% + ${l.x}%), calc(-50% + ${l.y}%)) scale(${l.scale}) rotate(${l.rotation || 0}deg);z-index:${10 + l.z};cursor:pointer;${isSel ? 'outline:2px dashed var(--s-accent, #ff6b00);outline-offset:3px;' : ''}`;
+    // PHASE 2: layer đang crop hiển thị KẾT QUẢ LIVE của crop draft (bg-position
+    // theo draft) — phản hồi trực quan tức thì, không đợi Apply.
+    const inCrop = cropping && isCropTarget(l);
+    const c = inCrop ? sanitizeCropRect(state.cropSession.draft) : l.crop;
+    const cropStyle = inCrop && (c.w < 1 || c.h < 1)
+      ? `object-fit:none;background-image:url('${l.url}');background-repeat:no-repeat;`
+      : '';
+    const style = `left:0;top:0;width:46%;max-width:320px;transform:translate(calc(-50% + ${l.x}%), calc(-50% + ${l.y}%)) scale(${l.scale}) rotate(${l.rotation || 0}deg);z-index:${10 + l.z};cursor:pointer;opacity:${Math.max(0, Math.min(1, Number(l.opacity) || 0))};${cropStyle}${isSel && !cropping ? 'outline:2px dashed var(--s-accent, #ff6b00);outline-offset:3px;' : ''}`;
     return `<img src="${escapeAttr(l.url)}" alt="${escapeAttr(l.name || 'Design')}" class="mockup-print-design" data-layer-id="${escapeAttr(l.id)}" draggable="false" style="${style}">`;
   }).join('') + (activeText ? renderStyledTextOverlay(activeText) : '');
   wireTextOverlayDrag(overlay);
@@ -818,13 +965,16 @@ function renderLayersOverlay() {
   overlay.querySelectorAll('img[data-layer-id]').forEach(img => {
     img.style.pointerEvents = 'auto';
     img.addEventListener('pointerdown', (e) => {
+      if (isCropMode()) return; // CROP MODE: drag = reframe trong khung crop — không move layer
       e.stopPropagation();
       e.preventDefault();
       const layer = sideLayers(side).find(l => l.id === img.dataset.layerId);
       if (!layer) return;
+      if (layer.locked) { showToast(`"${layer.name || 'Mẫu'}" đang khóa — bấm 🔓 để mở.`, 'warning', 1800); return; }
       // Đo rect TRƯỚC khi selectLayer (nó re-render overlay và thay thế node img
       // → rect trên node detached sẽ là 0x0).
       const layerBox = img.getBoundingClientRect();
+      beginDesignUndoBatch('move');
       const overlayBox = overlay.getBoundingClientRect();
       selectLayer(side, layer.id);
       const startX = e.clientX, startY = e.clientY;
@@ -858,6 +1008,19 @@ function renderLayersOverlay() {
           layer.rotation = clampNum(Math.round(origRot + (ang - ang0)), ...LAYER_BOUNDS.rotation);
           updateDragHud({ extra: `${Math.round(layer.rotation)}°` });
         } else {
+          /* GROUP MOVE: kéo ảnh cũng kéo theo chữ (cùng delta) — mỗi bên
+             clamp theo biên riêng; delta chữ tính theo overlay box của
+             node chữ để % chạy đúng tốc độ tay. */
+          if (groupMoveEnabled() && getSideCustomText() && !getSideTextLocked()) {
+            /* Đơn vị: ảnh % theo KÍCH THƯỚC NODE ẢNH, chữ % theo NODE CHỮ —
+               2 hệ quy chiếu KHÁC nhau. Đổi delta px tay sang % chữ theo
+               đúng rộng/cao node chữ để CẢ HAI chạy cùng số px màn hình
+               (trước đây y dùng tỉ lệ rộng → chữ trôi dọc sai tốc độ). */
+            const tr = overlay.querySelector('.mockup-print-text[data-text-drag]')?.getBoundingClientRect();
+            const tW = Math.max(1, tr?.width || refW), tH = Math.max(1, tr?.height || refH);
+            state.textPlacement.x = clampNum(state.textPlacement.x + dx * (refW / tW), ...TEXT_BOUNDS.x);
+            state.textPlacement.y = clampNum(state.textPlacement.y + dy * (refH / tH), ...TEXT_BOUNDS.y);
+          }
           layer.x = clampNum(origX + dx, ...LAYER_BOUNDS.x);
           layer.y = clampNum(origY + dy, ...LAYER_BOUNDS.y);
           const sn = snapPlacement({ x: layer.x, y: layer.y }, { bypass: ev.altKey, siblings: siblingSnapTargets(side, layer.id), layer });
@@ -879,6 +1042,7 @@ function renderLayersOverlay() {
         hideSnapGuides(); hideDragHud(); hidePrintBoundary();
         if (moved) {
           endLayerDragPreview();
+          pushDesignUndo('move'); // gộp cả quá trình kéo thành 1 entry
           renderLayersOverlay(); // rebuild 1 lần khi thả — đồng bộ danh sách/z-index
           showToast(`Đã di chuyển: ${layer.name || 'mẫu'} (x:${Math.round(layer.x)} y:${Math.round(layer.y)}${state.interactionMode === 'rotate' ? ` · ${Math.round(layer.rotation)}°` : ''})`, 'info', 1600);
         } else {
@@ -901,7 +1065,469 @@ function renderLayersOverlay() {
 function moveOverlayLayerNode(img, layer) {
   if (!img || !layer) return;
   img.style.transform = `translate(calc(-50% + ${layer.x}%), calc(-50% + ${layer.y}%)) scale(${layer.scale}) rotate(${layer.rotation || 0}deg)`;
+  img.style.opacity = String(Math.max(0, Math.min(1, Number(layer.opacity) || 0)));
 }
+
+/* ============================================================
+   SELECTION FRAME — direct manipulation chuẩn editor:
+   bounding box + 4 corner resize handles + rotation handle,
+   BÁM ĐÚNG node thật (cả 2D lẫn 3D mode), xoay theo object,
+   thao tác trực tiếp lên LAYER STATE (không state UI riêng).
+   Text (slogan) cũng là target: scale/rotate per side qua
+   sideTextPlacement/sideTextRotation — cùng pipeline composite.
+   ============================================================ */
+const selFrame = {
+  el: null, kind: null, layerId: null, side: null,
+  hidden: false, gesture: null,
+};
+
+/* CROP frame state (Phase 2) — element refs, no transform state here. */
+const cropFrame = { el: null, img: null, dim: null, win: null };
+
+function getSelectionTarget(side = state.currentView) {
+  if (state.activePlacementLayer === 'text' && getSideCustomText(side)) return { kind: 'text', layer: null };
+  const l = getSelectedLayer(side);
+  if (l) return { kind: 'image', layer: l };
+  if (getSideCustomText(side)) return { kind: 'text', layer: null };
+  return null;
+}
+
+function ensureSelectionFrame() {
+  if (selFrame.el && document.contains(selFrame.el)) return selFrame.el;
+  const viewer = document.getElementById('canvasViewer');
+  if (!viewer) return null;
+  const el = document.createElement('div');
+  el.className = 'selection-frame';
+  el.innerHTML = `
+    <span class="sel-unlock" data-handle="unlock" title="Mở khóa để chỉnh" hidden>🔒 Mở khóa</span>
+    <span class="sel-corner" data-handle="nw"></span>
+    <span class="sel-corner" data-handle="ne"></span>
+    <span class="sel-corner" data-handle="sw"></span>
+    <span class="sel-corner" data-handle="se"></span>
+    <span class="sel-rot-line"></span>
+    <span class="sel-rot-handle" data-handle="rot" title="Kéo để xoay">↻</span>`;
+  viewer.appendChild(el);
+  selFrame.el = el;
+  wireSelectionHandles(el);
+  return el;
+}
+
+/* Kích thước hiển thị (px, CHƯA tính rotation) của target + node tương ứng. */
+function selectionGeometry(kind, layer) {
+  const overlay = document.getElementById('mockupDesign');
+  if (!overlay) return null;
+  if (kind === 'image' && layer) {
+    const node = overlay.querySelector(`img[data-layer-id="${CSS.escape(layer.id)}"]`);
+    if (node) {
+      const s = Math.max(0.01, Number(layer.scale) || 1);
+      const rect = node.getBoundingClientRect();
+      if (rect.width > 2) {
+        // rect.width đã gồm scale — chia lại để ra kích thước gốc hiển thị.
+        try {
+          const m = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+          const sc = Math.hypot(m.a, m.b) || s;
+          return { node, w: rect.width / sc, h: rect.height / sc, cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 };
+        } catch (e) { /* matrix fail → dùng scale */ }
+      }
+      // MODE 3D: overlay node bị ẩn (0px) — đo kích thước thật qua PROJECTION
+      // decal (nguồn hiển thị chính xác trên áo). Không dùng offsetWidth=0.
+      const V = window.tshirt360Viewer;
+      if (V?.screenPosFromPrintPoint) {
+        const { hx, hy } = printSizeToUnits('image', layer);
+        const pC = V.screenPosFromPrintPoint(layer.x, layer.y, state.currentView);
+        const pA = V.screenPosFromPrintPoint(layer.x + hx, layer.y, state.currentView);
+        const pB = V.screenPosFromPrintPoint(layer.x - hx, layer.y, state.currentView);
+        const pCv = V.screenPosFromPrintPoint(layer.x, layer.y + hy, state.currentView);
+        const pD = V.screenPosFromPrintPoint(layer.x, layer.y - hy, state.currentView);
+        if (pC && pA && pB && pCv && pD) {
+          return { node, w: Math.max(4, Math.hypot(pA.x - pB.x, pA.y - pB.y)), h: Math.max(4, Math.hypot(pCv.x - pD.x, pCv.y - pD.y)), cx: pC.x, cy: pC.y };
+        }
+      }
+      return { node, w: node.offsetWidth * s, h: node.offsetHeight * s, cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2 };
+    }
+    return null;
+  }
+  // TEXT: đo chính node chữ (layout size, chưa scale).
+  const tnode = overlay.querySelector('.mockup-print-text[data-text-drag]');
+  if (tnode) {
+    const rect = tnode.getBoundingClientRect();
+    try {
+      const m = new DOMMatrixReadOnly(getComputedStyle(tnode).transform);
+      const sc = Math.hypot(m.a, m.b) || Math.max(0.01, getSideTextPlacement().scale || 1);
+      return { node: tnode, w: tnode.offsetWidth, h: tnode.offsetHeight, cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, sc };
+    } catch (e) { return { node: tnode, w: tnode.offsetWidth, h: tnode.offsetHeight, cx: rect.left + rect.width / 2, cy: rect.top + rect.height / 2, sc: getSideTextPlacement().scale || 1 }; }
+  }
+  return null;
+}
+
+function selectionRotation(kind, layer) {
+  return kind === 'image' ? (Number(layer?.rotation) || 0) : (Number(getSideTextRotation()) || 0);
+}
+
+/* Screen rect của object (ảnh/chữ) — 3D dùng PROJECTION decal (cùng phép
+   chiếu với selection frame), 2D dùng node overlay thật. Dùng cho hit-test
+   chọn object + kích thước preview kéo ĐÚNG decal (trước đây preview đo
+   ước lượng → to/nhỏ hơn thật, thả ra "giật" về size cũ). */
+function printObjectScreenRect(kind, layer) {
+  const V = window.tshirt360Viewer;
+  const viewer = document.getElementById('canvasViewer');
+  if (viewer?.classList.contains('has-real-3d') && typeof V?.screenPosFromPrintPoint === 'function') {
+    const x = kind === 'image' ? layer.x : getSideTextPlacement().x;
+    const y = kind === 'image' ? layer.y : getSideTextPlacement().y;
+    const { hx, hy } = printSizeToUnits(kind, layer);
+    const th = ((kind === 'image' ? (Number(layer.rotation) || 0) : (Number(getSideTextRotation()) || 0)) * Math.PI) / 180;
+    const c = Math.cos(th), s = Math.sin(th);
+    const corners = [[-hx, -hy], [hx, -hy], [hx, hy], [-hx, hy]]
+      .map(([ux, uy]) => V.screenPosFromPrintPoint(x + ux * c - uy * s, y + ux * s + uy * c, state.currentView));
+    if (corners.every(Boolean)) {
+      const xs = corners.map(p => p.x), ys = corners.map(p => p.y);
+      return { cx: (Math.min(...xs) + Math.max(...xs)) / 2, cy: (Math.min(...ys) + Math.max(...ys)) / 2, w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+    }
+    return null;
+  }
+  const overlay = document.getElementById('mockupDesign');
+  const node = kind === 'image' && layer
+    ? overlay?.querySelector(`img[data-layer-id="${CSS.escape(layer.id)}"]`)
+    : overlay?.querySelector('.mockup-print-text[data-text-drag]');
+  const r = node?.getBoundingClientRect();
+  if (r && r.width > 2) return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height };
+  return null;
+}
+
+/* Hit-test: object dưới con trỏ (text vẽ trên cùng trong composite → kiểm
+   trước; rồi layer theo z giảm dần). Padding 6px cho dễ trúng. Trả null khi
+   không trúng gì. Đây là mảnh ghép còn thiếu của UX "click vào cái nào chọn
+   cái đó" — trước đây activePlacementLayer='text' bắt mọi pointer thành chữ
+   nên không thể chọn lại ảnh sau khi tạo chữ. */
+function hitTestPrintObject(clientX, clientY) {
+  const side = state.currentView;
+  if (getSideCustomText(side)) {
+    const r = printObjectScreenRect('text', null);
+    if (r && r.w > 4 && Math.abs(clientX - r.cx) <= r.w / 2 + 6 && Math.abs(clientY - r.cy) <= r.h / 2 + 6) {
+      return { kind: 'text', layer: null };
+    }
+  }
+  const layers = [...sideLayers(side)].filter(l => l.visible !== false && l.url).sort((a, b) => (b.z || 0) - (a.z || 0));
+  for (const l of layers) {
+    const r = printObjectScreenRect('image', l);
+    if (r && r.w > 4 && Math.abs(clientX - r.cx) <= r.w / 2 + 6 && Math.abs(clientY - r.cy) <= r.h / 2 + 6) {
+      return { kind: 'image', layer: l };
+    }
+  }
+  return null;
+}
+
+/* Cập nhật vị trí/kích thước khung theo object. Gọi sau MỌI thay đổi.
+   • Mode 3D (has-real-3d): anchor qua PROJECTION THẬT (screenPosFromPrintPoint)
+     → khung bám chính xác decal trên áo, kể cả khi áo đã xoay.
+   • Mode 2D: anchor thẳng node overlay (chính xác tuyệt đối ở chế độ 2D). */
+/* Canvas dùng chung để đo chữ (không cấp phát mỗi lần update frame). */
+let _textMetricsCtx = null;
+function textMetricsContext() {
+  if (!_textMetricsCtx) {
+    const c = document.createElement('canvas');
+    c.width = 8; c.height = 8;
+    _textMetricsCtx = c.getContext('2d');
+  }
+  return _textMetricsCtx;
+}
+
+function printSizeToUnits(kind, layer) {
+  // Half-extents của object trong hệ toạ độ print-point (100 = nửa composite).
+  if (kind === 'image' && layer) {
+    const s = Math.max(0.01, Number(layer.scale) || 1);
+    let aspect = 1;
+    const node = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(layer.id)}"]`);
+    if (node && node.naturalWidth && node.naturalHeight) aspect = node.naturalWidth / node.naturalHeight;
+    // drawLayerOnContext: fit trong khung 58%·scale — chiều bị giới hạn bởi
+    // chiều dài hơn, chiều kia co theo aspect.
+    const wPct = 58 * s * Math.min(1, aspect);
+    const hPct = 58 * s * Math.min(1, 1 / aspect);
+    return { hx: wPct, hy: hPct };
+  }
+  /* TEXT — PHASE 5 COMPLETION: đo bằng CANVAS metrics (cùng font/size/spacing
+     với drawStyledText) thay vì offsetWidth của node overlay.
+     ROOT CAUSE trước đây: ở chế độ 3D (has-real-3d) overlay bị co về 0×0 nên
+     offsetWidth = 0 → hx/hy = 0 → khung chọn CHỮ không bao giờ hiện và kéo chữ
+     không có kích thước tham chiếu. Ảnh đã có fallback projection; chữ thì không.
+     Đơn vị: hx/hy là NỬA kích thước theo print-unit (100 = nửa vùng in) nên
+     giá trị = bề rộng/bề cao đầy đủ tính theo % composite (xem
+     screenPosFromPrintPoint: px/100 * decalW/2). */
+  const tp = getSideTextPlacement();
+  const text = applyTextTransform(getSideCustomText(), getSideTextStyle().transform);
+  if (text) {
+    const st = getSideTextStyle();
+    const fontDef = TEXT_FONTS[st.font] || TEXT_FONTS.display;
+    const weight = Math.min(Number(st.weight) || 900, fontDef.weightCap);
+    const fs = Math.max(34, 82 * (Number(tp.scale) || 1));
+    const mctx = textMetricsContext();
+    mctx.font = `${st.italic ? 'italic ' : ''}${weight} ${fs}px ${fontDef.stack}`;
+    try { mctx.letterSpacing = `${Math.round(fs * (Number(st.spacing) || 0) / 100)}px`; } catch (e) { /* */ }
+    const m = mctx.measureText(text);
+    const wFull = Math.max(1, m.width); // composite px (đã gồm letter-spacing)
+    const asc = Number.isFinite(m.actualBoundingBoxAscent) ? m.actualBoundingBoxAscent : fs * 0.72;
+    const desc = Number.isFinite(m.actualBoundingBoxDescent) ? m.actualBoundingBoxDescent : fs * 0.22;
+    const hFull = Math.max(fs * 0.6, asc + desc);
+    return { hx: (wFull / 1024) * 100, hy: (hFull / 1024) * 100 };
+  }
+  // Chưa có chữ → fallback cũ (giữ nguyên hành vi).
+  return { hx: 29 * (Number(tp.scale) || 1), hy: 12 * (Number(tp.scale) || 1) };
+}
+
+let selTrackRaf = 0;
+function stopSelectionTracking() {
+  if (selTrackRaf) { cancelAnimationFrame(selTrackRaf); selTrackRaf = 0; }
+}
+function startSelectionTracking() {
+  if (selTrackRaf) return;
+  const tick = () => {
+    selTrackRaf = requestAnimationFrame(tick);
+    updateSelectionFrame();
+  };
+  selTrackRaf = requestAnimationFrame(tick);
+}
+
+function updateSelectionFrame() {
+  const frame = ensureSelectionFrame();
+  if (!frame) return;
+  const viewer = document.getElementById('canvasViewer');
+  if (!viewer || viewer.style.display === 'none') { frame.classList.remove('active'); stopSelectionTracking(); return; }
+  if (selFrame.hidden || isCropMode()) { frame.classList.remove('active'); stopSelectionTracking(); return; }
+  const side = state.currentView;
+  const target = getSelectionTarget(side);
+  if (!target) { frame.classList.remove('active'); stopSelectionTracking(); return; }
+  const rot = selectionRotation(target.kind, target.layer);
+  const locked = target.kind === 'image' ? target.layer.locked === true : getSideTextLocked();
+  let cx = null, cy = null, w = 0, h = 0;
+  const is3D = viewer.classList.contains('has-real-3d') && typeof window.tshirt360Viewer?.screenPosFromPrintPoint === 'function';
+  if (is3D) {
+    // ---- 3D: project center + 4 điểm trục → w/h/center chính xác trên decal
+    const x = target.kind === 'image' ? target.layer.x : getSideTextPlacement().x;
+    const y = target.kind === 'image' ? target.layer.y : getSideTextPlacement().y;
+    const { hx, hy } = printSizeToUnits(target.kind, target.layer);
+    const th = (rot * Math.PI) / 180, c = Math.cos(th), s = Math.sin(th);
+    const pC = window.tshirt360Viewer.screenPosFromPrintPoint(x, y, side);
+    const pA = window.tshirt360Viewer.screenPosFromPrintPoint(x + hx * c, y + hx * s, side);
+    const pB = window.tshirt360Viewer.screenPosFromPrintPoint(x - hx * c, y - hx * s, side);
+    const pCv = window.tshirt360Viewer.screenPosFromPrintPoint(x - hy * s, y + hy * c, side);
+    const pD = window.tshirt360Viewer.screenPosFromPrintPoint(x + hy * s, y - hy * c, side);
+    if (pC && pA && pB && pCv && pD) {
+      const vr = viewer.getBoundingClientRect();
+      cx = pC.x - vr.left; cy = pC.y - vr.top;
+      w = Math.hypot(pA.x - pB.x, pA.y - pB.y);
+      h = Math.hypot(pCv.x - pD.x, pCv.y - pD.y);
+    }
+  }
+  if (cx == null) {
+    // ---- 2D fallback: anchor node overlay
+    const geo = selectionGeometry(target.kind, target.layer);
+    if (!geo || geo.w < 4 || geo.h < 4) { frame.classList.remove('active'); stopSelectionTracking(); return; }
+    const vr = viewer.getBoundingClientRect();
+    cx = geo.cx - vr.left; cy = geo.cy - vr.top; w = geo.w; h = geo.h;
+  }
+  if (w < 4 || h < 4) { frame.classList.remove('active'); stopSelectionTracking(); return; }
+  frame.classList.add('active');
+  frame.classList.toggle('locked-view', !!locked);
+  frame.classList.toggle('text-frame', target.kind === 'text');
+  const chip = frame.querySelector('.sel-unlock');
+  if (chip) chip.hidden = !locked;
+  frame.style.width = `${w}px`;
+  frame.style.height = `${h}px`;
+  frame.style.left = `${cx}px`;
+  frame.style.top = `${cy}px`;
+  frame.style.transform = `translate(-50%, -50%) rotate(${rot}deg)`;
+  selFrame.kind = target.kind; selFrame.layerId = target.layer?.id || null; selFrame.side = side;
+  // 3D mode: camera động (lerp/auto) → frame phải bám LIÊN TỤC theo projection.
+  if (is3D) startSelectionTracking();
+}
+
+function hideSelectionFrame() {
+  selFrame.hidden = true;
+  selFrame.el?.classList.remove('active');
+}
+function showSelectionFrame() {
+  selFrame.hidden = false;
+  updateSelectionFrame();
+}
+
+/* Hook preview kéo: đang kéo → frame ẩn (preview là feedback chính);
+   thả → frame hiện lại bám vị trí mới. */
+(function patchSelectionPreviewHooks() {
+  const origBegin = beginLayerDragPreview;
+  beginLayerDragPreview = function (...a) { selFrame.hidden = true; selFrame.el?.classList.remove('active'); return origBegin.apply(this, a); };
+  const origEnd = endLayerDragPreview;
+  endLayerDragPreview = function (...a) { const r = origEnd.apply(this, a); selFrame.hidden = false; refreshSelectionFrameSoon(); return r; };
+})();
+
+/* ---------------- RESIZE (corner handle) ---------------- */
+/* Resize GIỮ TỈ LỆ (mặc định) quanh góc đối diện, giữ rotation.
+   Toán học: làm việc trong hệ local (xoay ngược), scale factor k = w'/w.
+   center' = cornerW − R·(±w'/2, ±h'/2) → suy ngược x'/y' per kind:
+   • image (origin 50%): O = center − R·((x−50)w/100, (y−50)h/100); x' = 50 + (R⁻¹(center'−O)).x·100/w'
+   • text (origin 0 0):  T = cornerW − k·R·(±w/2, ±h/2);            x' = 50 + T.x·100/w'
+   Giới hạn: scale ∈ LAYER_BOUNDS.scale + min 24px hiển thị. */
+const SEL_MIN_PX = 24;
+
+function wireSelectionHandles(frame) {
+  frame.addEventListener('pointerdown', (e) => {
+    const handle = e.target.closest('[data-handle]');
+    if (!handle) return;
+    if (isCropMode()) return; // CROP MODE: handles selection không hoạt động
+    /* PASSTHROUGH (fix "không chọn lại được chữ sau khi tạo chữ"):
+       tay xoay ↻ treo 20px dưới khung + hit-area vô hình ±7px — khi chữ nằm
+       ngay dưới khung ảnh, bấm vào chữ bị nuốt thành gesture XOAY ẢNH
+       (stopPropagation → canvas không bao giờ nhận pointerdown).
+       Giờ: nếu dưới con trỏ là object KHÁC object đang chọn → nhường click
+       (không stopPropagation → event chảy xuống canvas → hit-test chọn đúng
+       object thật). Handle vẫn xoay/resize bình thường khi không ai ở dưới. */
+    if (handle.dataset.handle !== 'unlock') {
+      const cur = getSelectionTarget(state.currentView);
+      const hit = typeof hitTestPrintObject === 'function' ? hitTestPrintObject(e.clientX, e.clientY) : null;
+      const hitIsSelf = hit && cur && hit.kind === cur.kind && (hit.kind === 'text' || hit.layer?.id === cur.layer?.id);
+      if (hit && !hitIsSelf) return; // object khác nằm dưới handle → để canvas xử lý
+    }
+    e.stopPropagation(); e.preventDefault();
+    const side = state.currentView;
+    const target = getSelectionTarget(side);
+    if (!target) return;
+    // UNLOCK CHIP: bấm chip trên khung → mở khóa ngay (image/text).
+    if (handle.dataset.handle === 'unlock') {
+      if (target.kind === 'image') target.layer.locked = false;
+      else commitTextLocked(side, false);
+      pushDesignUndo('lock');
+      refreshSideViews();
+      showToast('Đã mở khóa — chỉnh thoải mái.', 'success', 1400);
+      return;
+    }
+    const locked = target.kind === 'image' ? target.layer.locked === true : getSideTextLocked();
+    if (locked) { showToast('Object đang khóa — bấm 🔒 Mở khóa trên khung.', 'warning', 2000); return; }
+    const geo = selectionGeometry(target.kind, target.layer);
+    if (!geo) return;
+    const rot = selectionRotation(target.kind, target.layer);
+    const isRotate = handle.dataset.handle === 'rot';
+    const cornerName = isRotate ? null : handle.dataset.handle;
+    const sign = cornerName === 'nw' ? { x: 1, y: 1 } : cornerName === 'ne' ? { x: -1, y: 1 } : cornerName === 'sw' ? { x: 1, y: -1 } : { x: -1, y: -1 };
+    const vr = document.getElementById('canvasViewer').getBoundingClientRect();
+    const centerW = { x: geo.cx - vr.left, y: geo.cy - vr.top };
+    const rad = (rot * Math.PI) / 180, cos = Math.cos(rad), sin = Math.sin(rad);
+    // Góc đối diện handle (hệ world, viewer-local):
+    const cornerW = isRotate
+      ? null
+      : { x: centerW.x + cos * (sign.x * geo.w / 2) - sin * (sign.y * geo.h / 2), y: centerW.y + sin * (sign.x * geo.w / 2) + cos * (sign.y * geo.h / 2) };
+    // Khoảng cách chuột→corner lúc BẮT ĐẦU (local) — scale tương đối theo
+    // đây nên không bao giờ nhảy dù handle bắt đầu lệch so với góc khung.
+    const startMouse = { x: e.clientX - vr.left, y: e.clientY - vr.top };
+    // ROTATE không dùng corner — bỏ qua tính local-origin quanh corner (cornerW=null).
+    const startLx0 = isRotate ? 1 : Math.max(4, cos * (startMouse.x - cornerW.x) + sin * (startMouse.y - cornerW.y));
+    const startLy0 = isRotate ? 1 : Math.max(4, -sin * (startMouse.x - cornerW.x) + cos * (startMouse.y - cornerW.y));
+    const start = {
+      w: geo.w, h: geo.h, rot,
+      mouse: startMouse,
+      angle0: Math.atan2(startMouse.y - centerW.y, startMouse.x - centerW.x) * 180 / Math.PI,
+      lx0: startLx0, ly0: startLy0,
+    };
+    beginDesignUndoBatch(isRotate ? 'rotate' : 'resize');
+    /* PHASE 5 FINAL — 1 GESTURE = 1 HISTORY ENTRY (rotate/resize handle).
+       Trước đây onMove đẩy undo mỗi ≥350ms → gesture dài sinh 4 entry, và vì
+       entry ghi ở trạng thái GIỮA gesture nên Ctrl+Z trả về rotation trung gian
+       chứ không phải rotation trước khi bắt đầu kéo. Giờ chỉ đẩy MỘT lần ở
+       pointerup (onUp đã có), nên pre = snapshot ngay trước gesture → undo chính xác. */
+    const onMove = (ev) => {
+      const m = { x: ev.clientX - vr.left, y: ev.clientY - vr.top };
+      if (isRotate) {
+        const ang = Math.atan2(m.y - centerW.y, m.x - centerW.x) * 180 / Math.PI;
+        let next = start.rot + (ang - start.angle0);
+        next = ((Math.round(next) % 360) + 360) % 360;
+        // Snap 45°: hút ổn định trong ±3.5° — không rung (chỉ snap khi vào vùng).
+        const near = ((next % 45) + 45) % 45;
+        const snapped = near <= 3.5 ? next - near : near >= 41.5 ? next + (45 - near) : null;
+        const val = snapped != null ? snapped : next;
+        if (target.kind === 'image') target.layer.rotation = val;
+        else commitTextRotation(state.currentView, val);
+        updateDragHud({ x: target.kind === 'image' ? target.layer.x : getSideTextPlacement().x, y: target.kind === 'image' ? target.layer.y : getSideTextPlacement().y, extra: `${Math.round(val)}°`, snapLabel: snapped != null ? `SNAP ${snapped}°` : '' });
+      } else {
+        // Chuột → local (xoay ngược quanh góc cố định). Scale TƯƠNG ĐỐI theo
+        // khoảng cách chuột lúc bắt đầu → kéo 1.5× = to 1.5×, đúng tốc độ tay.
+        const dx = m.x - cornerW.x, dy = m.y - cornerW.y;
+        const lx = cos * dx + sin * dy, ly = -sin * dx + cos * dy;
+        const k = Math.max(Math.abs(lx) / start.lx0, Math.abs(ly) / start.ly0, 0.05);
+        const scaleMax = target.kind === 'image' ? LAYER_BOUNDS.scale[1] : TEXT_BOUNDS.scale[1];
+        const scaleCur = target.kind === 'image' ? (Number(target.layer.scale) || 1) : (getSideTextPlacement().scale || 1);
+        let kNew = Math.min(k, scaleMax / scaleCur);
+        const minK = Math.max(0.1 / scaleCur, SEL_MIN_PX / Math.max(start.w, start.h));
+        kNew = Math.max(kNew, minK);
+        const nw = start.w * kNew, nh = start.h * kNew;
+        // Center mới trong local rồi quay ra world
+        const lc = { x: -sign.x * nw / 2, y: -sign.y * nh / 2 };
+        const cW = { x: cornerW.x + cos * lc.x - sin * lc.y, y: cornerW.y + sin * lc.x + cos * lc.y };
+        if (target.kind === 'image') {
+          const O = { x: centerW.x - (cos * ((target.layer.x - 50) * start.w / 100) - sin * ((target.layer.y - 50) * start.h / 100)), y: centerW.y - (sin * ((target.layer.x - 50) * start.w / 100) + cos * ((target.layer.y - 50) * start.h / 100)) };
+          const rx = cos * (cW.x - O.x) + sin * (cW.y - O.y), ry = -sin * (cW.x - O.x) + cos * (cW.y - O.y);
+          target.layer.scale = +(scaleCur * kNew).toFixed(4);
+          target.layer.x = +(50 + rx * 100 / nw).toFixed(3);
+          target.layer.y = +(50 + ry * 100 / nh).toFixed(3);
+          clampLayerToPrintArea(target.layer);
+          state.printPlacement = { x: target.layer.x, y: target.layer.y, scale: target.layer.scale };
+          updateDragHud({ x: target.layer.x, y: target.layer.y, extra: `${Math.round(target.layer.scale * 100)}%` });
+        } else {
+          const rx = cos * (-sign.x * nw / 2) - sin * (-sign.y * nh / 2), ry = sin * (-sign.x * nw / 2) + cos * (-sign.y * nh / 2);
+          const tp = state.textPlacement;
+          tp.scale = +(scaleCur * kNew).toFixed(4);
+          // Clamp về TEXT_BOUNDS — chữ không bao giờ bị resize văng ra ngoài vùng in
+          // (nhánh ảnh có clampLayerToPrintArea, nhánh chữ thiếu → x/y trôi tới 100%).
+          tp.x = clampNum(+(50 + rx * 100 / nw).toFixed(3), ...TEXT_BOUNDS.x);
+          tp.y = clampNum(+(50 + ry * 100 / nh).toFixed(3), ...TEXT_BOUNDS.y);
+          commitActivePlacements();
+          updateDragHud({ x: tp.x, y: tp.y, extra: `${Math.round(tp.scale * 100)}%` });
+        }
+      }
+      // Live: node transform + slider + decal throttle — KHÔNG rebuild DOM.
+      commitActivePlacements();
+      syncPlacementInputs();
+      if (target.kind === 'image' && target.layer) {
+        const node = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(target.layer.id)}"]`);
+        if (node) moveOverlayLayerNode(node, target.layer);
+      } else {
+        updateOverlayPlacement();
+        const tn = document.querySelector('#mockupDesign .mockup-print-text');
+        if (tn) { const tp2 = state.textPlacement; tn.style.transform = `translate(calc(-50% + ${tp2.x}%), calc(-50% + ${tp2.y}%)) scale(${tp2.scale}) rotate(${getSideTextRotation()}deg)`; }
+      }
+      scheduleViewerUpdate();
+      // Frame bám object mỗi frame move (nhẹ: chỉ style).
+      updateSelectionFrame();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      hideDragHud();
+      pushDesignUndo(isRotate ? 'rotate' : 'resize');
+      refreshSideViews();
+      showToast(isRotate ? `Đã xoay ${target.kind === 'image' ? 'mẫu' : 'chữ'} ${Math.round(selectionRotation(target.kind, target.layer))}°.` : `Kích thước: ${Math.round((target.kind === 'image' ? target.layer.scale : getSideTextPlacement().scale) * 100)}%.`, 'info', 1500);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
+}
+
+/* Selection phải sống sót qua mọi render — gắn hook nhẹ vào các hàm refresh
+   (không sửa từng call-site): observe sự thay đổi overlay bằng rAF ngắn
+   sau mỗi renderLayersOverlay/selectLayer via monkey-patch CÓ KIỂM SOÁT. */
+(function patchSelectionRefresh() {
+  const origRender = renderLayersOverlay;
+  renderLayersOverlay = function (...a) {
+    const r = origRender.apply(this, a);
+    requestAnimationFrame(() => updateSelectionFrame());
+    return r;
+  };
+  const origSelect = selectLayer;
+  selectLayer = function (...a) {
+    const r = origSelect.apply(this, a);
+    requestAnimationFrame(() => updateSelectionFrame());
+    return r;
+  };
+})();
 
 /* ============================================================
    SNAP ENGINE + HUD — nâng trải nghiệm đặt vị trí lên tầm pro:
@@ -998,48 +1624,82 @@ function hideDragHud() {
    Người dùng nhìn thấy ngay: "đây là giới hạn, ảnh sẽ luôn nguyên vẹn". */
 let boundaryEl = null;
 let boundaryGhostEl = null;
-function showPrintBoundary(layer) {
+let boundaryChipEl = null;
+function showPrintBoundary(layer, posX, posY) {
   const viewer = document.getElementById('canvasViewer');
   if (!viewer) return;
+  /* PRINT BOUNDARY 3.0 — khung ĐỎ ôm VÙNG IN trên áo (theo mẫu thiết kế):
+     chiếu 4 góc decal (±100 print-point) qua projection 3D → SVG polygon bám
+     đúng hình vùng in trên áo (không phải hình chữ nhật viewport). Ý nghĩa
+     rõ ràng: mép artwork KHÔNG BAO GIỜ vượt khung đỏ này — clamp theo mép
+     object đảm bảo điều đó. */
   if (!boundaryEl || !document.contains(boundaryEl)) {
-    boundaryEl = document.createElement('div');
-    boundaryEl.className = 'print-boundary';
-    boundaryEl.innerHTML = '<span class="pb-corner tl"></span><span class="pb-corner tr"></span><span class="pb-corner bl"></span><span class="pb-corner br"></span>';
+    boundaryEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    // SVG: className là SVGAnimatedString (readonly) — PHẢI setAttribute('class')
+    // để CSS .print-boundary match được.
+    boundaryEl.setAttribute('class', 'print-boundary');
+    boundaryEl.innerHTML = '<polygon class="pb-quad" points="0,0 0,0 0,0 0,0"></polygon>';
     viewer.appendChild(boundaryEl);
   }
+  if (!boundaryChipEl || !document.contains(boundaryChipEl)) {
+    boundaryChipEl = document.createElement('div');
+    boundaryChipEl.className = 'pb-limit-chip';
+    boundaryChipEl.textContent = 'ĐÃ TỚI GIỚI HẠN VÙNG IN';
+    viewer.appendChild(boundaryChipEl);
+  }
+  const V = window.tshirt360Viewer;
   const lim = layerPrintLimits(layer);
-  // BOUNDARY KHỚP PIXEL 3D: dùng project thật của 4 góc vùng di chuyển tâm
-  // (screenPosFromPrintPoint) thay vì công thức ước lượng — khung chính xác
-  // tuyệt đối với góc nhìn hiện tại của áo (kể cả khi áo đã xoay).
-  let x0 = null, y0 = null, x1 = null, y1 = null;
+  const vr0 = viewer.getBoundingClientRect();
+  let quad = null;
   try {
     const pts = [
-      window.tshirt360Viewer?.screenPosFromPrintPoint?.(lim.minX, lim.minY, state.currentView),
-      window.tshirt360Viewer?.screenPosFromPrintPoint?.(lim.maxX, lim.maxY, state.currentView),
+      V?.screenPosFromPrintPoint?.(-100, -100, state.currentView),
+      V?.screenPosFromPrintPoint?.(100, -100, state.currentView),
+      V?.screenPosFromPrintPoint?.(100, 100, state.currentView),
+      V?.screenPosFromPrintPoint?.(-100, 100, state.currentView),
     ].filter(Boolean);
-    if (pts.length === 2) {
-      x0 = Math.min(pts[0].x, pts[1].x); x1 = Math.max(pts[0].x, pts[1].x);
-      y0 = Math.min(pts[0].y, pts[1].y); y1 = Math.max(pts[0].y, pts[1].y);
+    if (pts.length === 4) {
+      quad = pts.map(p => `${(p.x - vr0.left).toFixed(1)},${(p.y - vr0.top).toFixed(1)}`).join(' ');
     }
   } catch (e) { /* fallback dưới */ }
-  if (x0 == null) {
-    // Fallback công thức cũ nếu 3D chưa sẵn sàng.
-    const w = (lim.maxX - lim.minX) * 0.58;
-    const h = (lim.maxY - lim.minY) * 0.58 * (viewer.clientWidth ? viewer.clientWidth / (viewer.clientHeight || 1) * 0.7 : 1);
-    const cx = (lim.minX + lim.maxX) / 2;
-    const cy = (lim.minY + lim.maxY) / 2;
-    boundaryEl.style.width = `${Math.max(8, Math.min(96, w))}%`;
-    boundaryEl.style.height = `${Math.max(8, Math.min(92, h))}%`;
-    boundaryEl.style.left = `calc(50% + ${cx * 0.29}%)`;
-    boundaryEl.style.top = `calc(44% + ${cy * 0.29}%)`;
-  } else {
-    const vr = viewer.getBoundingClientRect();
-    boundaryEl.style.left = `${x0 - vr.left}px`;
-    boundaryEl.style.top = `${y0 - vr.top}px`;
-    boundaryEl.style.width = `${Math.max(20, x1 - x0)}px`;
-    boundaryEl.style.height = `${Math.max(20, y1 - y0)}px`;
+  if (!quad) {
+    const vw = viewer.clientWidth || 1, vh = viewer.clientHeight || 1;
+    const w = (lim.maxX - lim.minX) * 0.58 / 100 * vw;
+    const h = (lim.maxY - lim.minY) * 0.58 / 100 * vh * 0.72;
+    const cx = (lim.minX + lim.maxX) / 2, cy = (lim.minY + lim.maxY) / 2;
+    const left = (50 + cx * 0.29) / 100 * vw, top = (44 + cy * 0.29) / 100 * vh;
+    quad = [
+      `${(left - w / 2).toFixed(1)},${(top - h / 2).toFixed(1)}`,
+      `${(left + w / 2).toFixed(1)},${(top - h / 2).toFixed(1)}`,
+      `${(left + w / 2).toFixed(1)},${(top + h / 2).toFixed(1)}`,
+      `${(left - w / 2).toFixed(1)},${(top + h / 2).toFixed(1)}`,
+    ].join(' ');
   }
+  const pbQuad = boundaryEl.querySelector('.pb-quad');
+  if (pbQuad) pbQuad.setAttribute('points', quad);
   boundaryEl.classList.add('active');
+  // CẢNH BÁO CHẠM BIÊN (kiểu mới): khung đập đỏ + CHIP đỏ nổi sát object —
+  // "tới đây là tối đa" hiện ngay tại chỗ, thay nhãn góc khung cũ.
+  const atLimit = layer && Number.isFinite(posX) && (
+    Math.abs(posX - lim.maxX) < 0.8 || Math.abs(posX - lim.minX) < 0.8 ||
+    Math.abs(posY - lim.maxY) < 0.8 || Math.abs(posY - lim.minY) < 0.8);
+  boundaryEl.classList.toggle('at-limit', !!atLimit);
+  if (boundaryChipEl) {
+    if (atLimit) {
+      const kind = layer?.url ? 'image' : 'text';
+      const r = typeof printObjectScreenRect === 'function' ? printObjectScreenRect(kind, layer?.url ? layer : null) : null;
+      if (r) {
+        const topPx = r.cy - r.h / 2 - vr0.top;
+        const below = topPx < 56; // sát mép trên → chip xuống đáy object
+        boundaryChipEl.classList.toggle('below', below);
+        boundaryChipEl.style.left = `${r.cx - vr0.left}px`;
+        boundaryChipEl.style.top = `${below ? r.cy + r.h / 2 - vr0.top : topPx}px`;
+        boundaryChipEl.classList.add('active');
+      }
+    } else {
+      boundaryChipEl.classList.remove('active');
+    }
+  }
   // GHOST ẢNH Ở BIÊN: bản-sao mờ của ảnh đặt tại giới hạn gần chuột nhất —
   // người dùng THẤY TRƯỚC ảnh sẽ nằm đâu khi đẩy tới giới hạn.
   if (layer && layer.url && !boundaryGhostEl) {
@@ -1051,7 +1711,8 @@ function showPrintBoundary(layer) {
     viewer.appendChild(boundaryGhostEl);
   }
   if (boundaryGhostEl && layer) {
-    const limW = Math.round((window.tshirt360Viewer?.getDecalScreenWidth?.(state.currentView) || 300) * 0.58 * (layer.scale || 1));
+    const { hx } = printSizeToUnits('image', layer);
+    const limW = Math.round((V?.getDecalScreenWidth?.(state.currentView) || 300) * (hx / 50));
     boundaryGhostEl.style.width = `${Math.max(30, limW)}px`;
   }
 }
@@ -1060,9 +1721,11 @@ function showPrintBoundary(layer) {
 function moveBoundaryGhost(layer, x, y) {
   if (!boundaryGhostEl || !layer) return;
   const lim = layerPrintLimits(layer);
-  const eps = 0.5;
-  const nearMax = (v, max) => v > max || Math.abs(v - max) < eps;
-  const nearMin = (v, min) => v < min || Math.abs(v - min) < eps;
+  // Vẽ ghost ở biên khi object ĐỤNG biên (≤0.8%) — đúng điểm dừng thật,
+  // kích thước = kích thước thật (projection) — không ước lượng.
+  const eps = 0.8;
+  const nearMax = (v, max) => Math.abs(v - max) < eps;
+  const nearMin = (v, min) => Math.abs(v - min) < eps;
   const gx = nearMax(x, lim.maxX) ? lim.maxX : nearMin(x, lim.minX) ? lim.minX : null;
   const gy = nearMax(y, lim.maxY) ? lim.maxY : nearMin(y, lim.minY) ? lim.minY : null;
   if (gx == null && gy == null) { boundaryGhostEl.classList.remove('active'); return; }
@@ -1074,6 +1737,13 @@ function moveBoundaryGhost(layer, x, y) {
   if (!px) { boundaryGhostEl.classList.remove('active'); return; }
   const viewer = document.getElementById('canvasViewer');
   const vr = viewer.getBoundingClientRect();
+  // Kích thước ghost = kích thước thật của object trên màn hình (projection).
+  const kind = layer.url ? 'image' : 'text';
+  const r = printObjectScreenRect(kind, layer.url ? layer : null);
+  if (r) {
+    boundaryGhostEl.style.width = `${Math.max(30, Math.round(r.w))}px`;
+    if (r.h > 4) boundaryGhostEl.style.height = `${Math.round(r.h)}px`;
+  }
   boundaryGhostEl.style.left = `${px.x - vr.left - boundaryGhostEl.offsetWidth / 2}px`;
   boundaryGhostEl.style.top = `${px.y - vr.top - boundaryGhostEl.offsetHeight / 2}px`;
   boundaryGhostEl.classList.add('active');
@@ -1081,6 +1751,7 @@ function moveBoundaryGhost(layer, x, y) {
 function hidePrintBoundary() {
   if (boundaryEl) boundaryEl.classList.remove('active');
   if (boundaryGhostEl) { boundaryGhostEl.classList.remove('active'); }
+  if (boundaryChipEl) boundaryChipEl.classList.remove('active');
 }
 
 /* Kiểm tra chạm biên sau clamp — trả về tên biên để HUD báo rõ. */
@@ -1107,8 +1778,9 @@ function snapPlacement(pos, opts = {}) {
     clamped.x = clampNum(pos.x, lim.minX, lim.maxX);
     clamped.y = clampNum(pos.y, lim.minY, lim.maxY);
   }
-  // 2. Boundary frame luôn hiện trong lúc kéo → người dùng thấy giới hạn.
-  if (layer) showPrintBoundary(layer);
+  // 2. Boundary frame luôn hiện trong lúc kéo → người dùng thấy giới hạn
+  //    (pos truyền vào để cảnh báo đỏ khi object ĐỤNG biên).
+  if (layer) showPrintBoundary(layer, clamped.x, clamped.y);
   if (bypass) {
     showSnapGuides({});
     const ll = lim ? limitLabel(clamped.x, clamped.y, lim) : '';
@@ -1127,7 +1799,14 @@ function snapPlacement(pos, opts = {}) {
   // SOFT-WARN: ảnh tràn khung composite (chủ ý full-print) vẫn in được trên
   // decal plane — HUD báo nhẹ để người dùng biết đang dùng vùng mở rộng.
   const overflow = lim && lim.soft && (Math.abs(sx.value) + lim.half > 50 || sy.value - lim.half < -44 || sy.value + lim.half > 56);
+  pushDesignUndo('move'); // drag path = 1 entry/gesture (coalesce 350ms)
   return { x: sx.value, y: sy.value, snapLabel: label.join(' + '), limitLabel: ll, overflow, snappedX: sx.snapped, snappedY: sy.snapped };
+}
+
+/* Master update selection frame — gọi sau MỌI render/refresh/select.
+   Không thay đổi state; chỉ định vị khung theo geometry thật. */
+function refreshSelectionFrameSoon() {
+  requestAnimationFrame(() => updateSelectionFrame());
 }
 
 /* Slogan overlay theo đúng style (font/case/màu/đậm/viền/giãn) — cùng công
@@ -1145,7 +1824,9 @@ function renderStyledTextOverlay(rawText) {
     ? `text-shadow: 1px 1px 0 ${ink}, -1px 1px 0 ${ink}, 1px -1px 0 ${ink}, -1px -1px 0 ${ink}, 0 0 3px ${ink}, 0 3px 8px rgba(0,0,0,0.28);`
     : 'text-shadow: none;';
   const deco = `${st.italic ? ' font-style:italic;' : ''}${st.underline ? ' text-decoration:underline;' : ''}`;
-  return `<div class="mockup-print-text" data-text-drag="1" style="font-family:${def.stack};font-weight:${weight};color:${escapeAttr(st.color)};letter-spacing:${(st.spacing || 0) / 100}em;text-transform:none;${stroke}${deco}">${escapeHtml(text)}</div>`;
+  const tpv = getSideTextPlacement();
+  const textOp = Math.max(0, Math.min(1, Number(tpv.opacity) || 1));
+  return `<div class="mockup-print-text" data-text-drag="1" style="font-family:${def.stack};font-weight:${weight};color:${escapeAttr(st.color)};letter-spacing:${(st.spacing || 0) / 100}em;text-transform:none;opacity:${textOp};${stroke}${deco}">${escapeHtml(text)}</div>`;
 }
 
 /* Kéo chữ TRỰC TIẾP trên overlay (như layer ảnh): pointerdown trên
@@ -1153,12 +1834,13 @@ function renderStyledTextOverlay(rawText) {
    screen-space (cùng đường beginLayerDragPreview). */
 function wireTextOverlayDrag(overlay) {
   const el = overlay.querySelector('.mockup-print-text[data-text-drag]');
-  if (!el) return;
-  el.style.pointerEvents = 'auto';
-  el.addEventListener('pointerdown', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    setActivePlacementLayer('text');
+  if (!el) return;    el.style.pointerEvents = 'auto';
+    el.addEventListener('pointerdown', el._textDragDown = (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      setActivePlacementLayer('text');
+      if (getSideTextLocked()) { showToast('Chữ đang khóa — mở khóa để di chuyển.', 'warning', 1700); return; }
+      beginDesignUndoBatch('text-move');
     const box = el.getBoundingClientRect();
     const startX = e.clientX, startY = e.clientY;
     const origX = getSideTextPlacement().x, origY = getSideTextPlacement().y;
@@ -1177,8 +1859,22 @@ function wireTextOverlayDrag(overlay) {
       // commit ghi đè ngược về 0 mỗi move (drag chữ đứng yên).
       state.textPlacement.x = clampNum(origX + (ev.clientX - startX) * ppx, ...TEXT_BOUNDS.x);
       state.textPlacement.y = clampNum(origY + (ev.clientY - startY) * ppy, ...TEXT_BOUNDS.y);
-      const sn = snapPlacement({ x: state.textPlacement.x, y: state.textPlacement.y }, { bypass: ev.altKey, siblings: siblingSnapTargets(sideKey(), null), layer: { scale: state.textPlacement.scale, ratio: 0.4 } });
+      /* GROUP MOVE: kéo chữ cũng kéo theo ảnh đang chọn — delta px tay đổi
+         sang % ảnh theo NODE ẢNH (không phải cộng nguyên % chữ: 2 hệ quy
+         chiếu khác nhau làm ảnh trôi khác chữ = "2 cái riêng biệt"). */
+      if (groupMoveEnabled()) {
+        const sel = getSelectedLayer(sideKey());
+        if (sel && !sel.locked) {
+          const ir = overlay.querySelector(`img[data-layer-id="${CSS.escape(sel.id)}"]`)?.getBoundingClientRect();
+          const iW = Math.max(1, ir?.width || 1), iH = Math.max(1, ir?.height || 1);
+          sel.x = clampNum(sel.x + (ev.clientX - startX) * 100 / iW, ...LAYER_BOUNDS.x);
+          sel.y = clampNum(sel.y + (ev.clientY - startY) * 100 / iH, ...LAYER_BOUNDS.y);
+        }
+      }
+      const sn = snapPlacement({ x: state.textPlacement.x, y: state.textPlacement.y }, { bypass: ev.altKey, siblings: siblingSnapTargets(sideKey(), null), layer: { kind: 'text', scale: state.textPlacement.scale } });
       state.textPlacement.x = sn.x; state.textPlacement.y = sn.y;
+      commitTextRotation(sideKey(), getSideTextRotation()); // giữ rotation trong side buffer
+      if (sn.snapLabel) updateDragHud({ x: state.textPlacement.x, y: state.textPlacement.y, snapLabel: sn.snapLabel, limitLabel: sn.limitLabel });
       updateDragHud({ x: state.textPlacement.x, y: state.textPlacement.y, snapLabel: sn.snapLabel, limitLabel: sn.limitLabel });
       commitActivePlacements();
       syncPlacementInputs();
@@ -1191,6 +1887,7 @@ function wireTextOverlayDrag(overlay) {
       hideSnapGuides(); hideDragHud(); hidePrintBoundary();
       if (moved) {
         endLayerDragPreview();
+        pushDesignUndo('text-move');
         renderLayersOverlay();
         showToast(`Đã di chuyển chữ (x:${Math.round(getSideTextPlacement().x)} y:${Math.round(getSideTextPlacement().y)})`, 'info', 1500);
       }
@@ -1217,24 +1914,35 @@ function renderLayerList() {
     return;
   }
   const selected = getSelectedLayer(side);
-  list.innerHTML = layers.map((l, idx) => `
-    <div class="layer-row${selected && selected.id === l.id ? ' selected' : ''}" data-layer-id="${escapeAttr(l.id)}">
+  list.innerHTML = layers.map((l, idx) => {
+    const op = Math.round(Math.max(0, Math.min(1, Number(l.opacity) || 0)) * 100);
+    const locked = l.locked === true;
+    const meta = `x:${Math.round(l.x)} y:${Math.round(l.y)} · ${Math.round(l.scale * 100)}%${l.rotation ? ` · ${Math.round(l.rotation)}°` : ''}${l.visible === false ? ' · ẩn' : ''}${op < 100 ? ` · ${op}%` : ''}${locked ? ' · 🔒' : ''}${l.crop ? ' · đã cắt' : ''}`;
+    const nameCell = locked
+      ? `<div class="layer-name" title="Đang khóa">${escapeHtml((l.name || 'Mẫu').slice(0, 60))}</div>`
+      : `<input class="layer-name-input" data-rename="1" value="${escapeAttr(l.name || 'Mẫu')}" maxlength="60" aria-label="Tên mẫu" title="Bấm để đổi tên">`;
+    return `
+    <div class="layer-row${selected && selected.id === l.id ? ' selected' : ''}${locked ? ' locked' : ''}${l.visible === false ? ' hidden' : ''}" data-layer-id="${escapeAttr(l.id)}">
       <img class="layer-thumb" src="${escapeAttr(l.url)}" alt="" loading="lazy">
       <div class="layer-info">
-        <div class="layer-name">${escapeHtml((l.name || 'Mẫu').slice(0, 60))}</div>
-        <div class="layer-meta">x:${Math.round(l.x)} y:${Math.round(l.y)} · ${Math.round(l.scale * 100)}%${l.rotation ? ` · ${Math.round(l.rotation)}°` : ''}${l.visible === false ? ' · ẩn' : ''}</div>
+        ${nameCell}
+        <div class="layer-meta">${meta}</div>
       </div>
       <div class="layer-actions">
         <button class="layer-btn" data-action="up" title="Đưa lên trên" ${idx === 0 ? 'disabled' : ''}>▲</button>
         <button class="layer-btn" data-action="down" title="Đưa xuống dưới" ${idx === layers.length - 1 ? 'disabled' : ''}>▼</button>
-        <button class="layer-btn" data-action="toggle" title="Ẩn/hiện">${l.visible === false ? '👁‍🗨' : '👁'}</button>
+        <button class="layer-btn" data-action="toggle" title="Ẩn/hiện" aria-pressed="${l.visible === false ? 'true' : 'false'}">${l.visible === false ? '🚫' : '👁'}</button>
+        <button class="layer-btn${locked ? ' active' : ''}" data-action="lock" title="${locked ? 'Mở khóa để sửa' : 'Khóa chống sửa/xóa'}" aria-pressed="${locked}">🔒</button>
+        <button class="layer-btn" data-action="duplicate" title="Nhân bản (Ctrl+D)">⧉</button>
         <button class="layer-btn" data-action="replace" title="Thay bằng mẫu mới nhất">⟳</button>
-        <button class="layer-btn layer-del" data-action="delete" title="Xóa mẫu">✕</button>
+        <button class="layer-btn layer-del" data-action="delete" title="Xóa mẫu" ${locked ? 'disabled title="Đang khóa"' : ''}>✕</button>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   list.querySelectorAll('.layer-row').forEach(row => {
     const id = row.dataset.layerId;
     row.addEventListener('click', (e) => {
+      if (e.target.closest('[data-rename]')) return; // đang gõ tên — không select lại
       const action = e.target.closest('[data-action]')?.dataset.action;
       if (!action) {
         selectLayer(side, id);
@@ -1245,20 +1953,55 @@ function renderLayerList() {
       handleLayerAction(side, id, action);
     });
   });
+  list.querySelectorAll('input[data-rename]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const id = inp.closest('.layer-row')?.dataset.layerId;
+      const layer = sideLayers(side).find(l => l.id === id);
+      if (!layer) return;
+      const name = inp.value.trim().slice(0, 60) || layer.name || 'Mẫu';
+      if (name !== layer.name) {
+        beginDesignUndoBatch('rename');
+        layer.name = name;
+        pushDesignUndo('rename');
+        showToast('Đã đổi tên mẫu.', 'success', 1400);
+      }
+    });
+    inp.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
+      if (e.key === 'Escape') { e.preventDefault(); inp.value = sideLayers(side).find(l => l.id === inp.closest('.layer-row')?.dataset.layerId)?.name || ''; inp.blur(); }
+    });
+  });
 }
 
 async function handleLayerAction(side, id, action) {
   const layers = sideLayers(side);
   const layer = layers.find(l => l.id === id);
+  if (layer?.locked && !['toggle', 'lock', 'delete'].includes(action)) {
+    showToast('Mẫu đang khóa — mở khóa để chỉnh.', 'warning', 1600);
+    return;
+  }
   if (action === 'delete') {
-    removeLayer(side, id);
-    showToast('Đã xóa mẫu khỏi áo.', 'info');
+    removeLayerWithUndo(side, id);
+  } else if (action === 'duplicate') {
+    duplicateLayer(side, id);
+    return; // tự refresh
+  } else if (action === 'lock') {
+    beginDesignUndoBatch('lock');
+    if (layer) layer.locked = !layer.locked;
+    pushDesignUndo('lock');
+    showToast(layer?.locked ? 'Đã khóa mẫu — chống sửa/xóa nhầm.' : 'Đã mở khóa mẫu.', 'info', 1600);
   } else if (action === 'toggle') {
+    beginDesignUndoBatch('visibility');
     if (layer) layer.visible = layer.visible === false ? true : false;
+    pushDesignUndo('visibility');
   } else if (action === 'up') {
+    beginDesignUndoBatch('reorder');
     moveLayerZ(side, id, +1);
+    pushDesignUndo('reorder');
   } else if (action === 'down') {
+    beginDesignUndoBatch('reorder');
     moveLayerZ(side, id, -1);
+    pushDesignUndo('reorder');
   } else if (action === 'replace') {
     const fresh = state.lastGenerated[side === 'back' ? 'back' : 'front'];
     if (!fresh) {
@@ -1266,8 +2009,11 @@ async function handleLayerAction(side, id, action) {
       return;
     }
     if (layer) {
+      beginDesignUndoBatch('replace');
       layer.url = fresh;
-      showToast('Đã thay mẫu đang chọn bằng mẫu mới nhất.', 'success');
+      layer.designId = state.currentDesign?.designId || layer.designId;
+      pushDesignUndo('replace');
+      showToast('Đã thay mẫu đang chọn bằng mẫu mới nhất — cùng layer, không rác.', 'success', 2000);
     }
   } else {
     selectLayer(side, id);
@@ -1289,6 +2035,7 @@ function updateOverlayPlacement() {
   overlay.style.setProperty('--text-x', `${tp.x}%`);
   overlay.style.setProperty('--text-y', `${tp.y}%`);
   overlay.style.setProperty('--text-scale', String(tp.scale));
+  overlay.style.setProperty('--text-rot', `${Number(tp.rotation) || 0}deg`);
 }
 
 function updateThreeTexture() {
@@ -1297,11 +2044,17 @@ function updateThreeTexture() {
   scheduleViewerUpdate();
 }
 
+/* PHASE 3: token chống stale-callback — khi 2 apply chạy song song (throttle tick
+   trộn với commit pointerup), call cũ hoàn thành SAU không được ghi đè decal
+   bằng composite cũ. Call mới nhất luôn thắng. */
+let viewerApplyToken = 0;
 async function applyCurrentDesignToViewer() {
+  const myToken = ++viewerApplyToken;
   // The side composites (all visible layers + text per side) are the images
   // the 3D decals show — 2D and 3D always agree. Front và BACK là 2 decal
   // độc lập; mặt không có thiết kế truyền null (không in).
   const vd = await getCompositeDesignsForViewer();
+  if (myToken !== viewerApplyToken) return; // stale — một call mới hơn đang sở hữu viewer
   const activeComposite = state.currentView === 'back' ? (vd.back || vd.front) : (vd.front || vd.back);
   state.printDesignUrl = activeComposite || '';
   try {
@@ -1325,7 +2078,7 @@ function setInteractionMode(mode = 'position') {
   if (state.currentDesign || state.printDesignUrl || getSideCustomText()) applyCurrentDesignToViewer();
 }
 
-function setActivePlacementLayer(layer = 'image') { state.activePlacementLayer = layer === 'text' ? 'text' : 'image'; updateOverlayPlacement(); }
+function setActivePlacementLayer(layer = 'image') { state.activePlacementLayer = layer === 'text' ? 'text' : 'image'; updateOverlayPlacement(); updateSideBadge(); }
 
 /* ============================================================
    PRINT PRESETS (vị trí & kích thước in)
@@ -1355,11 +2108,13 @@ function requireSelectedLayer() {
 }
 
 function applyPrintPositionPreset(key) {
-  const preset = PRINT_POSITION_PRESETS[key];
-  if (!preset) return;
+  if (isCropMode()) return; // CROP MODE: preset position không tác dụng
+  const presetDef = PRINT_POSITION_PRESETS[key];
+  if (!presetDef) return;
   const sel = requireSelectedLayer();
   if (!sel) return;
-  sel.x = preset.x; sel.y = preset.y; sel.scale = preset.scale;
+  if (sel.locked) { showToast(`"${sel.name || 'Mẫu'}" đang khóa — mở khóa để chỉnh.`, 'warning', 1600); return; }
+  sel.x = presetDef.x; sel.y = presetDef.y; sel.scale = presetDef.scale;
   state.printPlacement = { x: sel.x, y: sel.y, scale: sel.scale };
   commitActivePlacements();
   syncPlacementInputs();
@@ -1368,6 +2123,7 @@ function applyPrintPositionPreset(key) {
 }
 
 function applyPrintSizePreset(key) {
+  if (isCropMode()) return; // CROP MODE: preset size không tác dụng
   const preset = PRINT_SIZE_PRESETS[key];
   if (!preset) return;
   const sel = requireSelectedLayer();
@@ -2193,6 +2949,8 @@ function saveToHistory(design) {
     url: l.url, x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0,
     visible: l.visible !== false, z: l.z, name: l.name,
     designId: l.designId, prompt: l.prompt, style: l.style,
+    opacity: Number(l.opacity) || 1, locked: l.locked === true,
+    crop: l.crop ? { ...l.crop } : null, assetId: l.assetId, kind: l.kind,
   }));
   const entry = {
     id: design.designId || 'design-' + Date.now(),
@@ -2238,16 +2996,20 @@ function renderHistory() {
       const entry = history.find(h => h.id === id);
       if (entry) {
         state.currentDesign = { success: true, designId: entry.id, designUrl: entry.designUrl, frontDesignUrl: entry.frontDesignUrl || entry.designUrl, backDesignUrl: entry.backDesignUrl, prompt: entry.prompt, style: entry.style, author: 'History' };
+        state.savedDesignId = null; state.savedDesignName = null; updateSavedBadge(); // history-restore = identity mới, không ghi đè bản đã lưu
         // Restore full multi-layer composition when available; otherwise
         // fall back to adding the single snapshot URL as one layer.
         if (entry.layers && (entry.layers.front?.length || entry.layers.back?.length)) {
-          for (const side of ['front', 'back']) {
-            clearSideLayers(side);
-            (entry.layers[side] || []).forEach((l) => {
-              const added = addLayer(side, { url: l.url, name: l.name, designId: l.designId, prompt: l.prompt, style: l.style });
-              if (added) { Object.assign(added, { x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0, visible: l.visible !== false, z: l.z }); clampLayerToPrintArea(added); }
-            });
-          }
+          withDesignUndoSuppressed(() => { // khôi phục N layer = ĐÚNG 1 entry undo
+            for (const side of ['front', 'back']) {
+              clearSideLayers(side);
+              (entry.layers[side] || []).forEach((l) => {
+                const added = addLayer(side, { url: l.url, name: l.name, designId: l.designId, prompt: l.prompt, style: l.style });
+                if (added) { Object.assign(added, { x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0, visible: l.visible !== false, z: l.z, opacity: Number(l.opacity) || 1, locked: l.locked === true, crop: l.crop ? { ...l.crop } : null }); clampLayerToPrintArea(added); }
+              });
+            }
+          });
+          pushDesignUndo('restore');
           await refreshSideViews();
           updateBackDesignControls();
           updateShareButton();
@@ -2279,6 +3041,238 @@ function initHistory() {
     document.getElementById('panelHistory')?.classList.toggle('open');
   });
   renderHistory();
+}
+
+/* ============================================================
+   PHASE 4 — SAVED DESIGNS (persistent, server-backed, fully editable)
+   Lưu CẢ 2 mặt áo + mọi layer (transform/crop/opacity/lock/visibility/z)
+   + text per side + product + color — reopen = thiết kế nguyên trạng.
+   ============================================================ */
+function buildSavedDesignPayload() {
+  const snapText = (side) => {
+    const content = getSideCustomText(side);
+    if (!content) return null;
+    const tp = getSideTextPlacement(side);
+    return {
+      content,
+      placement: {
+        x: tp.x, y: tp.y, scale: tp.scale,
+        rotation: tp.rotation || 0, opacity: Number.isFinite(tp.opacity) ? tp.opacity : 1,
+      },
+      style: getSideTextStyle(side),
+      locked: getSideTextLocked(side),
+    };
+  };
+  const snapLayers = (side) => sideLayers(side).map(l => ({
+    url: l.url, name: l.name, kind: l.kind, assetId: l.assetId || null,
+    x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0,
+    opacity: Number(l.opacity) || 1, visible: l.visible !== false,
+    locked: l.locked === true, z: l.z,
+    crop: l.crop ? { ...l.crop } : null,
+    prompt: l.prompt || '', style: l.style || '',
+  }));
+  const payload = {
+    designId: state.savedDesignId || undefined,
+    name: state.savedDesignName || (state.currentDesign?.prompt ? String(state.currentDesign.prompt).slice(0, 80) : ''),
+    productType: state.selectedProductType,
+    color: state.selectedColor,
+    size: state.selectedSize,
+    front: { layers: snapLayers('front'), text: snapText('front') },
+    back: { layers: snapLayers('back'), text: snapText('back') },
+  };
+  return payload;
+}
+
+async function saveDesignToServer({ silent = false, asNew = false } = {}) {
+  if (asNew) { state.savedDesignId = null; state.savedDesignName = null; } // fork: luôn tạo record mới
+  if (requireAuth()) return null;
+  if (!state.savedDesignId && !hasLayerDesigns('front') && !hasLayerDesigns('back') && !getSideCustomText('front') && !getSideCustomText('back')) {
+    if (!silent) showToast('Chưa có thiết kế để lưu.', 'warning');
+    return null;
+  }
+  const btn = document.getElementById('saveDesignBtn');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.classList.add('is-loading'); }
+  try {
+    const resp = await fetchWithTimeout(`${API_BASE}/ai-design/saved`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...auth.getAuthHeaders() },
+      body: JSON.stringify(buildSavedDesignPayload()),
+    }, 15000);
+    const data = await resp.json().catch(() => ({}));
+    if (resp.status === 401) { showToast('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', 'warning', 5000); return null; }
+    if (!resp.ok || data.success === false) throw new Error(data.error || `Lưu thất bại (HTTP ${resp.status}).`);
+    state.savedDesignId = data.designId; // identity ổn định — save lại = update
+    state.savedDesignName = data.record?.name || state.savedDesignName;
+    updateSavedBadge();
+    if (!silent) showToast(data.created ? 'Đã lưu thiết kế vào tài khoản!' : 'Đã cập nhật thiết kế!', 'success');
+    renderSavedDesigns();
+    return data.designId;
+  } catch (e) {
+    if (!silent) showToast(e.message || 'Lưu thiết kế thất bại.', 'error');
+    return null;
+  } finally {
+    if (btn) { btn.disabled = false; btn.classList.remove('is-loading'); btn.innerHTML = originalHtml; }
+  }
+}
+
+async function loadSavedDesign(designId) {
+  if (requireAuth()) return false;
+  try {
+    const resp = await fetchWithTimeout(`${API_BASE}/ai-design/saved/${encodeURIComponent(designId)}`, {
+      headers: auth.getAuthHeaders(),
+    }, 15000);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || data.success === false) throw new Error(data.error || 'Không tải được thiết kế.');
+    const rec = data.record;
+    // Product trước layer: đúng model + mapping trước khi dựng layers.
+    const productBtn = document.querySelector(`.product-type-btn[data-product-type="${rec.productType}"]`);
+    if (productBtn && rec.productType !== state.selectedProductType) productBtn.click();
+    else if (rec.productType === state.selectedProductType) window.tshirt360Viewer?.setProduct?.(rec.productType);
+    // Màu áo + size đã lưu (2 lựa chọn này thuộc design/product snapshot).
+    if (rec.color && /^#[0-9a-fA-F]{3,8}$/.test(rec.color)) {
+      state.selectedColor = rec.color;
+      updateMockupColor(); // áp màu lên mockup 2D + texture/3D + UI
+    }
+    if (rec.size && String(rec.size)) {
+      state.selectedSize = String(rec.size).slice(0, 4);
+      document.querySelectorAll('.size-btn').forEach(b => {
+        const on = String(b.dataset.size || '') === state.selectedSize;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+    }
+    state.savedDesignId = rec.designId;
+    state.savedDesignName = rec.name;
+    // Hiện khung xem thật (không còn empty state) — cùng reveal như showDesignOnMockup
+    // nhưng KHÔNG tạo thêm layer (layers đã được khôi phục bên dưới).
+    const viewerEl = document.getElementById('canvasViewer');
+    const emptyEl = document.getElementById('canvasEmpty');
+    if (viewerEl) viewerEl.style.display = 'flex';
+    if (emptyEl) emptyEl.style.display = 'none';
+    const placementPanel = document.getElementById('placementPanel');
+    if (placementPanel) placementPanel.style.display = 'block';
+    withDesignUndoSuppressed(() => { // khôi phục N layer = 1 entry undo
+      for (const side of ['front', 'back']) {
+        clearSideLayers(side);
+        (rec[side]?.layers || []).forEach((l) => {
+          const added = addLayer(side, { url: l.url, name: l.name, kind: l.kind, assetId: l.assetId, prompt: l.prompt, style: l.style });
+          if (added) {
+            Object.assign(added, {
+              x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0,
+              opacity: Number(l.opacity) || 1, visible: l.visible !== false,
+              locked: l.locked === true, z: l.z,
+              crop: l.crop ? { ...l.crop } : null,
+            });
+            clampLayerToPrintArea(added);
+          }
+        });
+      }
+      // Text per side (content + placement + style + lock)
+      for (const side of ['front', 'back']) {
+        const t = rec[side]?.text;
+        if (t && t.content) {
+          state.customTextSides[side] = t.content;
+          if (side === state.currentView) state.customText = t.content;
+          state.compositeCacheKey = '';
+          const tp = { x: t.placement?.x ?? 0, y: t.placement?.y ?? 18, scale: t.placement?.scale ?? 1, rotation: t.placement?.rotation ?? 0, opacity: t.placement?.opacity ?? 1 };
+          state.sideTextPlacement[side] = tp;
+          if (side === state.currentView) state.textPlacement = { ...tp };
+          if (t.style) state.sideTextStyle[side] = { ...getSideTextStyle(side), ...t.style };
+          if (side === state.currentView) { state.textStyle = { ...state.sideTextStyle[side] }; syncTextStyleControls?.(); }
+          commitTextLocked(side, t.locked === true);
+        }
+      }
+    });
+    pushDesignUndo('restore-saved');
+    state.currentDesign = state.currentDesign || { success: true, designId: rec.designId, isSaved: true };
+    await refreshSideViews();
+    updateBackDesignControls();
+    updateActionButtons(true);
+    updateShareButton();
+    syncCustomTextInputs();
+    updateSavedBadge();
+    showToast(`Đã mở "${rec.name}"`, 'success');
+    return true;
+  } catch (e) {
+    showToast(e.message || 'Mở thiết kế thất bại.', 'error');
+    return false;
+  }
+}
+
+async function renderSavedDesigns() {
+  const list = document.getElementById('savedDesignsList');
+  if (!list) return;
+  if (typeof auth === 'undefined' || !auth?.isLoggedIn?.()) {
+    list.innerHTML = '<div class="saved-empty">Đăng nhập để lưu thiết kế vào tài khoản.</div>';
+    return;
+  }
+  try {
+    const resp = await fetchWithTimeout(`${API_BASE}/ai-design/saved`, { headers: auth.getAuthHeaders() }, 15000);
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok || data.success === false) throw new Error(data.error || 'Lỗi');
+    const items = data.data || [];
+    if (!items.length) {
+      list.innerHTML = '<div class="saved-empty">Chưa có thiết kế nào được lưu.</div>';
+      return;
+    }
+    list.innerHTML = items.map(d => `
+      <div class="saved-item ${d.designId === state.savedDesignId ? 'current' : ''}" data-id="${escapeAttr(d.designId)}">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <div class="saved-item-info">
+          <div class="saved-item-name">${escapeHtml(d.name || 'Không tên')}</div>
+          <div class="saved-item-meta">${escapeHtml({ tshirt: 'T-Shirt', hoodie: 'Hoodie', polo: 'Polo' }[d.productType] || d.productType)} · ${d.counts?.front || 0}L/${d.counts?.back || 0}L · ${formatDateTime(Date.parse(d.updatedAt) || Date.now())}</div>
+        </div>
+        <button class="saved-item-delete" title="Xóa thiết kế" aria-label="Xóa thiết kế" type="button">✕</button>
+      </div>`).join('');
+    list.querySelectorAll('.saved-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        if (e.target.closest('.saved-item-delete')) return;
+        loadSavedDesign(item.dataset.id);
+      });
+    });
+    list.querySelectorAll('.saved-item-delete').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = btn.closest('.saved-item')?.dataset.id;
+        if (!id || !confirm('Xóa thiết kế đã lưu này?')) return;
+        try {
+          const resp = await fetchWithTimeout(`${API_BASE}/ai-design/saved/${encodeURIComponent(id)}`, { method: 'DELETE', headers: auth.getAuthHeaders() }, 15000);
+          if (resp.ok) {
+            if (state.savedDesignId === id) { state.savedDesignId = null; state.savedDesignName = null; updateSavedBadge(); }
+            renderSavedDesigns();
+            showToast('Đã xóa thiết kế.', 'success');
+          }
+        } catch { showToast('Xóa thất bại.', 'error'); }
+      });
+    });
+  } catch (e) {
+    list.innerHTML = '<div class="saved-empty">Không tải được danh sách — thử lại sau.</div>';
+  }
+}
+
+function updateSavedBadge() {
+  const badge = document.getElementById('savedBadge');
+  if (badge) {
+    badge.hidden = !state.savedDesignId;
+    badge.textContent = state.savedDesignName || 'Đã lưu';
+  }
+  const saveBtn = document.getElementById('saveDesignBtn');
+  if (saveBtn) {
+    const label = saveBtn.querySelector('span');
+    if (label) label.textContent = state.savedDesignId ? 'Cập nhật thiết kế' : 'Lưu thiết kế';
+  }
+}
+
+function initSavedDesigns() {
+  document.getElementById('saveDesignBtn')?.addEventListener('click', () => saveDesignToServer());
+  document.getElementById('saveAsNewBtn')?.addEventListener('click', () => saveDesignToServer({ asNew: true }));
+  const toggle = document.getElementById('savedToggle');
+  if (toggle) toggle.addEventListener('click', () => {
+    document.getElementById('panelSaved')?.classList.toggle('open');
+    if (document.getElementById('panelSaved')?.classList.contains('open')) renderSavedDesigns();
+  });
+  if (typeof auth !== 'undefined' && auth?.isLoggedIn?.()) renderSavedDesigns();
 }
 
 /* ============================================================
@@ -2551,6 +3545,11 @@ function initViewToggle() {
 
 function setViewerSide(side) {
   const next = side === 'back' ? 'back' : 'front';
+  if (isCropMode() && next !== state.currentView) {
+    // Đổi mặt áo trong Crop Mode = hủy phiên (không tạo entry — đúng hợp đồng Cancel).
+    exitCropMode({ apply: false, silent: true });
+    showToast('Đã thoát Crop Mode khi đổi mặt áo.', 'info', 1600);
+  }
   if (state.currentView === next) {
     if (state.currentDesign || state.printDesignUrl || hasLayerDesigns(next)) { updateDesignOverlayForSide(); applyCurrentDesignToViewer(); }
     updateSideBadge();
@@ -2634,6 +3633,10 @@ function syncPlacementInputs() {
   set('printPosY', Math.round(ip.y));
   set('printScale', Math.round(ip.scale * 100));
   set('printRotation', Math.round(sel ? (sel.rotation || 0) : 0));
+  // Opacity + crop của layer đang chọn (slider phản ánh state thật)
+  set('layerOpacity', Math.round(Math.max(0, Math.min(1, Number(sel?.opacity) || 1)) * 100));
+  set('layerCropW', Math.round((sel?.crop ? sel.crop.w : 1) * 100));
+  set('layerCropH', Math.round((sel?.crop ? sel.crop.h : 1) * 100));
   set('textPosX', Math.round(state.textPlacement.x));
   set('textPosY', Math.round(state.textPlacement.y));
   set('textScale', Math.round(state.textPlacement.scale * 100));
@@ -2643,7 +3646,7 @@ function syncPlacementInputs() {
 /* Track fill % cho mọi slider vị trí — xuất phát từ CSS var --fill mà CSS mới đọc.
    Gọi trong syncPlacementInputs (mọi mutation đều đi qua đây) + lúc init. */
 function paintSliderFills() {
-  ['printPosX', 'printPosY', 'printScale', 'printRotation', 'textPosX', 'textPosY', 'textScale', 'textSpacing'].forEach((id) => {
+  ['printPosX', 'printPosY', 'printScale', 'printRotation', 'textPosX', 'textPosY', 'textScale', 'textSpacing', 'textRotate', 'layerOpacity', 'layerCropW', 'layerCropH'].forEach((id) => {
     const el = document.getElementById(id);
     if (!el) return;
     const min = Number(el.min) || 0;
@@ -2659,8 +3662,8 @@ function paintSliderFills() {
     // Chip giá trị live (output trong label)
     const out = document.getElementById(id + 'Value');
     if (out) {
-      if (id === 'printScale' || id === 'textScale') out.textContent = `${Math.round(val)}%`;
-      else if (id === 'printRotation') out.textContent = `${Math.round(val)}°`;
+      if (id === 'printScale' || id === 'textScale' || id === 'layerOpacity' || id === 'layerCropW' || id === 'layerCropH') out.textContent = `${Math.round(val)}%`;
+      else if (id === 'printRotation' || id === 'textRotate') out.textContent = `${Math.round(val)}°`;
       else out.textContent = String(Math.round(val));
     }
   });
@@ -2693,7 +3696,18 @@ function initPrintControls() {
     state.customTextSides[sideKey()] = state.customText;
     textInputs.forEach(o => { if (o !== sourceInput) o.value = sourceInput.value; });
     state.compositeCacheKey = '';
+    pushDesignUndo('text-content');
+    /* PHASE 5 COMPLETION — ROOT CAUSE (chữ/slogan không thao tác được ngay):
+       trước đây đường tạo/sửa chữ chỉ cập nhật state.customText mà KHÔNG đặt
+       chữ làm đối tượng đang thao tác → activePlacementLayer vẫn là 'image',
+       nên kéo trên áo là kéo ẢNH và khung chọn bám ảnh. Người dùng phải click
+       vào chữ trước; vì tưởng thao tác không ăn nên họ lặp lại thao tác tạo
+       → thấy như "2 chữ giống hệt nhau".
+       Giờ: có chữ ⇒ chữ là target NGAY (khung chọn + kéo chữ hoạt động luôn);
+       xoá hết chữ ⇒ trả target về ảnh. */
+    setActivePlacementLayer(state.customText ? 'text' : 'image');
     updateDesignOverlayForSide();
+    requestAnimationFrame(() => updateSelectionFrame());
     applyCurrentDesignToViewer();
   }, 160);
   textInputs.forEach(input => {
@@ -2709,8 +3723,10 @@ function initPrintControls() {
       if (!el) return;
       el.addEventListener('input', () => {
         if (stateKey === 'printPlacement') {
+          if (isCropMode()) return; // CROP MODE: sliders transform tạm ngưng
           const sel = requireSelectedLayer();
           if (!sel) return;
+          if (sel.locked) { showToast(`"${sel.name || 'Mẫu'}" đang khóa — mở khóa để chỉnh.`, 'warning', 1600); return; }
           setActivePlacementLayer('image');
           sel.x = clampNum(Number(document.getElementById(ids[0])?.value ?? defaults.x), ...LAYER_BOUNDS.x);
           sel.y = clampNum(Number(document.getElementById(ids[1])?.value ?? defaults.y), ...LAYER_BOUNDS.y);
@@ -2720,10 +3736,12 @@ function initPrintControls() {
           state.printPlacement = { x: sel.x, y: sel.y, scale: sel.scale };
           commitActivePlacements();
           syncPlacementInputs();
+          pushDesignUndo('placement');
           scheduleViewerUpdateThrottled(); // live 3D feedback trong lúc kéo
           return;
         }
         setActivePlacementLayer('text');
+        if (getSideTextLocked()) { showToast('Chữ đang khóa — mở khóa để chỉnh.', 'warning', 1600); return; }
         // numOr: rỗng → fallback, else Number — toán tử `||` trước đây nuốt
         // giá trị 0 hợp lệ (kéo X chữ về 0 bị hiểu là 'falsy' → nhảy về 18).
         const numOr = (id, fallback) => {
@@ -2739,6 +3757,7 @@ function initPrintControls() {
           scale: clampNum(numOr(ids[2], defaults.scale * 100) / 100, ...TEXT_BOUNDS.scale, 1),
         };
         commitActivePlacements();
+        pushDesignUndo('text-placement');
         updateOverlayPlacement();
         syncPlacementInputs();
         scheduleViewerUpdateThrottled();
@@ -2752,18 +3771,23 @@ function initPrintControls() {
     document.getElementById(id)?.addEventListener('change', () => refreshSideViews());
   });
   document.getElementById('printRotation')?.addEventListener('input', (e) => {
+    if (isCropMode()) return; // CROP MODE: rotation giữ nguyên khi crop
     const sel = requireSelectedLayer();
     if (!sel) return;
+    if (sel.locked) { showToast(`"${sel.name || 'Mẫu'}" đang khóa — mở khóa để xoay.`, 'warning', 1600); return; }
     sel.rotation = clampNum(Number(e.target.value ?? 0), ...LAYER_BOUNDS.rotation);
     commitActivePlacements();
+    pushDesignUndo('rotate');
     syncPlacementInputs();
     scheduleViewerUpdateThrottled(); // xoay live mượt, full refresh khi thả (change)
   });
 
   document.getElementById('placementReset')?.addEventListener('click', () => {
+    if (isCropMode()) { showToast('Đang ở Crop Mode — Apply/Hủy trước khi reset.', 'warning', 1800); return; }
     // Reset ONLY the selected layer (never the whole side).
     const sel = getSelectedLayer();
     const defaults = PRINT_POSITION_PRESETS[state.currentView === 'back' ? 'back' : 'chest'];
+    if (sel?.locked) { showToast(`"${sel.name || 'Mẫu'}" đang khóa.`, 'warning', 1600); return; }
     if (sel) {
       sel.x = defaults.x; sel.y = defaults.y; sel.scale = defaults.scale; sel.rotation = 0;
       state.printPlacement = { x: sel.x, y: sel.y, scale: sel.scale };
@@ -2772,6 +3796,7 @@ function initPrintControls() {
     }
     state.textPlacement = getSideTextPlacement(state.currentView);
     commitActivePlacements();
+    pushDesignUndo('reset');
     refreshSideViews();
   });
 
@@ -2782,6 +3807,7 @@ function initPrintControls() {
     sel.x = 0;
     state.printPlacement.x = 0;
     commitActivePlacements();
+    pushDesignUndo('align');
     refreshSideViews();
     showToast('Đã căn giữa ngang.', 'success', 1200);
   });
@@ -2792,18 +3818,21 @@ function initPrintControls() {
     sel.y = 0;
     state.printPlacement.y = 0;
     commitActivePlacements();
+    pushDesignUndo('align');
     refreshSideViews();
     showToast('Đã căn giữa dọc.', 'success', 1200);
   });
   document.getElementById('textCenterH')?.addEventListener('click', () => {
     state.textPlacement.x = 0;
     commitActivePlacements();
+    pushDesignUndo('align');
     refreshSideViews();
     showToast('Chữ đã căn giữa ngang.', 'success', 1200);
   });
   document.getElementById('textCenterV')?.addEventListener('click', () => {
     state.textPlacement.y = 0;
     commitActivePlacements();
+    pushDesignUndo('align');
     refreshSideViews();
     showToast('Chữ đã căn giữa dọc.', 'success', 1200);
   });
@@ -2811,12 +3840,17 @@ function initPrintControls() {
   // Keyboard nudge
   document.addEventListener('keydown', e => {
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
+    if (isCropMode()) return; // CROP MODE: arrow nudge tạm ngưng
     if (state.interactionMode !== 'position') return;
     if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
     const step = e.shiftKey ? 5 : 1;
     const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
     const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-    nudgePlacement(state.activePlacementLayer, dx, dy);
+    // Locked guard — theo đúng TARGET đang chọn thật (image hoặc text)
+    const tgt = getSelectionTarget();
+    if (tgt?.kind === 'image' && tgt.layer?.locked) { showToast(`"${tgt.layer.name || 'Mẫu'}" đang khóa — mở khóa để di chuyển.`, 'warning', 1600); e.preventDefault(); return; }
+    if (tgt?.kind === 'text' && getSideTextLocked()) { showToast('Chữ đang khóa — mở khóa để di chuyển.', 'warning', 1600); e.preventDefault(); return; }
+    nudgePlacement(tgt?.kind === 'text' ? 'text' : 'image', dx, dy);
     e.preventDefault();
   });
 
@@ -2825,6 +3859,91 @@ function initPrintControls() {
   updateOverlayPlacement();
   initStickerPicker();
   initAlignTools();
+  initDesignUndoRedo();
+  initLayerEditControls();
+}
+
+/* ============================================================
+   OPACITY + CROP (non-destructive) + QUICK ACTIONS
+   — mọi thay đổi đi qua layer state → composite → 3D. Không UI giả.
+   ============================================================ */
+function initLayerEditControls() {
+  const sel = () => getSelectedLayer();
+
+  // OPACITY — live trong lúc kéo, 1 entry undo khi thả (change).
+  const opacityEl = document.getElementById('layerOpacity');
+  opacityEl?.addEventListener('input', (e) => {
+    if (isCropMode()) return; // CROP MODE: opacity tạm ngưng (giữ nguyên khi crop)
+    const target = sel();
+    if (!target) return;
+    target.opacity = clampNum(Number(e.target.value ?? 100) / 100, 0, 1, 1);
+    commitActivePlacements();
+    paintSliderFills();
+    const node = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(target.id)}"]`);
+    if (node) node.style.opacity = String(target.opacity);
+    scheduleViewerUpdateThrottled();
+  });
+  opacityEl?.addEventListener('change', () => {
+    pushDesignUndo('opacity');
+    refreshSideViews();
+  });
+
+  // CROP non-destructive — slider = draft khi Crop Mode; 1 gesture = 1 entry (change).
+  const cropInput = (id, axis) => {
+    const el = document.getElementById(id);
+    el?.addEventListener('input', (e) => applyCropSlider(axis, e.target.value));
+    el?.addEventListener('change', () => {
+      const target = sel();
+      if (!target) return;
+      pushDesignUndo('crop'); // 1 entry/gesture (coalesce 350ms gộp burst)
+      refreshSideViews();
+    });
+  };
+  cropInput('layerCropW', 'w');
+  cropInput('layerCropH', 'h');
+  document.getElementById('cropResetBtn')?.addEventListener('click', () => {
+    const target = sel();
+    if (!target || !target.crop) return;
+    target.crop = null;
+    commitActivePlacements();
+    pushDesignUndo('crop');
+    refreshSideViews();
+    showToast('Đã khôi phục toàn bộ ảnh gốc.', 'success', 1500);
+  });
+
+  // QUICK ACTIONS trên layer đang chọn
+  document.getElementById('qaDuplicate')?.addEventListener('click', () => {
+    const target = sel();
+    if (!target) { showToast('Chọn một mẫu để nhân bản.', 'warning'); return; }
+    duplicateLayer(state.currentView, target.id);
+  });
+  document.getElementById('qaLock')?.addEventListener('click', () => {
+    const target = sel();
+    if (!target) { showToast('Chọn một mẫu để khóa/mở khóa.', 'warning'); return; }
+    beginDesignUndoBatch('lock');
+    target.locked = !target.locked;
+    pushDesignUndo('lock');
+    refreshSideViews();
+    showToast(target.locked ? 'Đã khóa mẫu — chống sửa/xóa nhầm.' : 'Đã mở khóa.', 'info', 1600);
+  });
+  document.getElementById('qaReset')?.addEventListener('click', () => {
+    if (isCropMode()) { showToast('Đang ở Crop Mode — Apply/Hủy trước khi reset.', 'warning', 1800); return; }
+    const target = sel();
+    if (!target) { showToast('Chọn một mẫu để reset.', 'warning'); return; }
+    const defaults = PRINT_POSITION_PRESETS[state.currentView === 'back' ? 'back' : 'chest'];
+    beginDesignUndoBatch('reset');
+    target.x = defaults.x; target.y = defaults.y; target.scale = defaults.scale; target.rotation = 0;
+    state.printPlacement = { x: target.x, y: target.y, scale: target.scale };
+    commitActivePlacements();
+    pushDesignUndo('reset');
+    refreshSideViews();
+    showToast('Đã reset vị trí + xoay mẫu.', 'success', 1400);
+  });
+  document.getElementById('qaDelete')?.addEventListener('click', () => {
+    const target = sel();
+    if (!target) { showToast('Chọn một mẫu để xóa.', 'warning'); return; }
+    removeLayerWithUndo(state.currentView, target.id);
+  });
 }
 
 /* ============================================================
@@ -2903,6 +4022,13 @@ function syncTextStyleControls() {
   document.querySelectorAll('#textColorPresets .text-color-dot').forEach(d => {
     d.classList.toggle('active', (d.dataset.color || '').toLowerCase() === String(st.color).toLowerCase());
   });
+  // PHASE 1: xoay + khóa chữ per side
+  const rotEl = document.getElementById('textRotate');
+  if (rotEl) rotEl.value = String(getSideTextRotation());
+  const rotOut = document.getElementById('textRotateValue');
+  if (rotOut) rotOut.textContent = `${Math.round(getSideTextRotation())}°`;
+  const lockBtn = document.getElementById('textLockBtn');
+  if (lockBtn) { lockBtn.classList.toggle('active', getSideTextLocked()); lockBtn.setAttribute('aria-pressed', getSideTextLocked() ? 'true' : 'false'); }
 }
 
 function initTextStyleControls() {
@@ -2910,33 +4036,31 @@ function initTextStyleControls() {
     updateDesignOverlayForSide();
     applyCurrentDesignToViewer();
   };
+  const styleRerender = () => { pushDesignUndo('text-style'); syncTextStyleControls(); rerender(); };
   document.getElementById('textFontSelect')?.addEventListener('change', (e) => {
     commitSideTextStyle({ font: e.target.value });
     // Weight vượt cap của font mới → hạ về cap (Playfair không có 900).
     const cap = (TEXT_FONTS[e.target.value] || TEXT_FONTS.display).weightCap;
     if ((getSideTextStyle().weight || 0) > cap) commitSideTextStyle({ weight: cap });
-    syncTextStyleControls();
-    rerender();
+    styleRerender();
   });
   document.getElementById('textWeightSelect')?.addEventListener('change', (e) => {
     commitSideTextStyle({ weight: clampNum(Number(e.target.value), 400, 900, 900) });
-    rerender();
+    styleRerender();
   });
   // Color input: 'input' live mượt (không đợi change).
   document.getElementById('textColorInput')?.addEventListener('input', (e) => {
     commitSideTextStyle({ color: e.target.value });
-    syncTextStyleControls();
-    rerender();
+    styleRerender();
   });
   document.getElementById('textSpacing')?.addEventListener('input', (e) => {
     commitSideTextStyle({ spacing: clampNum(Number(e.target.value), 0, 30, 0) });
-    syncTextStyleControls();
-    rerender();
+    styleRerender();
   });
   document.querySelectorAll('#textCaseGroup .text-case-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       commitSideTextStyle({ transform: btn.dataset.case || 'upper' });
-      syncTextStyleControls();
+      styleRerender();
       rerender();
     });
   });
@@ -2944,29 +4068,100 @@ function initTextStyleControls() {
   Object.entries(toggleMap).forEach(([id, key]) => {
     document.getElementById(id)?.addEventListener('click', () => {
       commitSideTextStyle({ [key]: !getSideTextStyle()[key] });
-      syncTextStyleControls();
-      rerender();
+      styleRerender();
     });
   });
+  /* GROUP MOVE toggle — "Kéo chung": ảnh + chữ di chuyển cùng lúc trên mọi
+     đường kéo (overlay/canvas/nudge). Persist qua localStorage để giữ ý
+     người dùng giữa các phiên thiết kế. */
+  const gmt = document.getElementById('groupMoveToggle');
+  if (gmt) {
+    state.groupMoveMode = safeGet('blankup_group_move', '0') === '1';
+    const paint = () => {
+      gmt.classList.toggle('active', state.groupMoveMode);
+      gmt.setAttribute('aria-pressed', state.groupMoveMode ? 'true' : 'false');
+    };
+    paint();
+    gmt.addEventListener('click', () => {
+      state.groupMoveMode = !state.groupMoveMode;
+      safeSet('blankup_group_move', state.groupMoveMode ? '1' : '0');
+      paint();
+      showToast(state.groupMoveMode
+        ? '⛓ Kéo chung BẬT — ảnh và chữ di chuyển cùng lúc.'
+        : 'Kéo chung TẮT — ảnh và chữ di chuyển riêng.', 'info', 2200);
+    });
+  }
   document.querySelectorAll('#textColorPresets .text-color-dot').forEach(dot => {
     dot.addEventListener('click', () => {
       commitSideTextStyle({ color: dot.dataset.color });
-      syncTextStyleControls();
-      rerender();
+      styleRerender();
     });
+  });
+  // PHASE 1: xoay + khóa CHỮ (per side)
+  document.getElementById('textRotate')?.addEventListener('input', (e) => {
+    if (getSideTextLocked()) { showToast('Chữ đang khóa — mở khóa để xoay.', 'warning', 1600); e.target.value = getSideTextRotation(); paintSliderFills(); return; }
+    commitTextRotation(state.currentView, Number(e.target.value ?? 0));
+    commitActivePlacements();
+    pushDesignUndo('text-rotate');
+    updateOverlayPlacement();
+    const tn = document.querySelector('#mockupDesign .mockup-print-text');
+    if (tn) tn.style.transform = `translate(calc(-50% + ${state.textPlacement.x}%), calc(-50% + ${state.textPlacement.y}%)) scale(${state.textPlacement.scale}) rotate(${getSideTextRotation()}deg)`;
+    scheduleViewerUpdateThrottled();
+    refreshSelectionFrameSoon();
+  });
+  document.getElementById('textRotate')?.addEventListener('change', () => refreshSideViews());
+  document.getElementById('textLockBtn')?.addEventListener('click', () => {
+    const next = !getSideTextLocked();
+    commitTextLocked(state.currentView, next);
+    pushDesignUndo('lock');
+    syncTextStyleControls();
+    refreshSideViews();
+    showToast(next ? 'Đã khóa chữ — chống sửa/di chuyển nhầm.' : 'Đã mở khóa chữ.', 'info', 1600);
   });
   syncTextStyleControls();
 }
 
 function nudgePlacement(layer, dx, dy) {
+  if (state.groupMoveMode) {
+    /* GROUP MOVE (kéo chung): mũi tên di chuyển ảnh + chữ CÙNG LÚC —
+       đúng nghĩa "mẫu ảnh và chữ là một tổng thể" người dùng mong đợi.
+       Mỗi thành phần vẫn bị clamp/snap theo biên riêng (không vượt vùng in). */
+    let movedAny = false;
+    const sel = getSelectedLayer();
+    if (sel && !sel.locked) {
+      sel.x = clampNum(sel.x + dx, ...LAYER_BOUNDS.x);
+      sel.y = clampNum(sel.y + dy, ...LAYER_BOUNDS.y);
+      movedAny = true;
+    }
+    if (getSideCustomText() && !getSideTextLocked()) {
+      /* cùng chuẩn quy đổi composite như các đường kéo (0.58×scale; y ×h/w) */
+      const sc = Number(sel?.scale) || 1;
+      const nr = sel ? document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(sel.id)}"]`)?.getBoundingClientRect() : null;
+      const ar = nr && nr.width > 1 ? nr.height / nr.width : 1;
+      state.textPlacement.x = clampNum(state.textPlacement.x + dx * 0.58 * sc, ...TEXT_BOUNDS.x);
+      state.textPlacement.y = clampNum(state.textPlacement.y + dy * 0.58 * sc * ar, ...TEXT_BOUNDS.y);
+      movedAny = true;
+    }
+    if (!movedAny) return;
+    pushDesignUndo('nudge-group');
+    commitActivePlacements();
+    syncPlacementInputs();
+    renderLayersOverlay();
+    scheduleViewerUpdate();
+    return;
+  }
   if (layer === 'text') {
-    state.textPlacement.x = Math.max(-80, Math.min(80, state.textPlacement.x + dx));
-    state.textPlacement.y = Math.max(-75, Math.min(45, state.textPlacement.y + dy));
+    if (getSideTextLocked()) { showToast('Chữ đang khóa — mở khóa để di chuyển.', 'warning', 1600); return; }
+    state.textPlacement.x = clampNum(state.textPlacement.x + dx, ...TEXT_BOUNDS.x);
+    state.textPlacement.y = clampNum(state.textPlacement.y + dy, ...TEXT_BOUNDS.y);
+    pushDesignUndo('text-move');
   } else {
     const target = getSelectedLayer();
     if (!target) return;
+    if (target.locked) { showToast(`"${target.name || 'Mẫu'}" đang khóa — mở khóa để di chuyển.`, 'warning', 1600); return; }
     target.x = clampNum(target.x + dx, ...LAYER_BOUNDS.x);
     target.y = clampNum(target.y + dy, ...LAYER_BOUNDS.y);
+    pushDesignUndo('nudge');
   }
   commitActivePlacements();
   syncPlacementInputs();
@@ -2975,11 +4170,49 @@ function nudgePlacement(layer, dx, dy) {
 }
 
 /* ============================================================
+   GROUP MOVE ("Kéo chung") — ảnh + chữ di chuyển như MỘT tổng thể.
+   Slogan và artwork là 2 thực thể riêng trong kiến trúc hiện tại
+   (per-side text vs layer list) nên không gộp state được; thay vào đó
+   mọi đường kéo (overlay image / overlay text / canvas) khi bật chế độ
+   này sẽ cộng CÙNG delta cho cả hai, mỗi bên vẫn clamp theo biên riêng
+   và có snap riêng. 1 gesture = 1 undo entry (beginDesignUndoBatch
+   đã bao phủ cả đường overlay lẫn canvas).
+   ============================================================ */
+function groupMoveEnabled() { return state.groupMoveMode === true; }
+
+/* Dịch cả ảnh đang chọn + chữ cùng một delta (đã tính theo % vùng in).
+   Trả về vị trí thật sau clamp để caller dùng cho preview/snap. */
+function applyGroupMoveDelta(dx, dy) {
+  const moved = { image: null, text: null };
+  const sel = getSelectedLayer();
+  if (sel && !sel.locked) {
+    sel.x = clampNum(sel.x + dx, ...LAYER_BOUNDS.x);
+    sel.y = clampNum(sel.y + dy, ...LAYER_BOUNDS.y);
+    moved.image = { x: sel.x, y: sel.y };
+  }
+  if (getSideCustomText() && !getSideTextLocked()) {
+    /* % chữ quy đổi từ % ảnh theo chuẩn composite: ×0.58×scale (x), y ×(h/w) */
+    const sc = Number(sel?.scale) || 1;
+    const nr = sel ? document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(sel.id)}"]`)?.getBoundingClientRect() : null;
+    const ar = nr && nr.width > 1 ? nr.height / nr.width : 1;
+    state.textPlacement.x = clampNum(state.textPlacement.x + dx * 0.58 * sc, ...TEXT_BOUNDS.x);
+    state.textPlacement.y = clampNum(state.textPlacement.y + dy * 0.58 * sc * ar, ...TEXT_BOUNDS.y);
+    moved.text = { x: state.textPlacement.x, y: state.textPlacement.y };
+  }
+  return moved;
+}
+
+function isTextLockedForDrag() { return getSideCustomText() && getSideTextLocked(); }
+
+/* ============================================================
    MULTI-DESIGN LAYERS — independent entities per garment side
    ============================================================ */
 const LAYER_BOUNDS = { x: [-115, 115], y: [-110, 80], scale: [0.1, 2.6], rotation: [0, 360] };
 // Bounds slider placement chữ (khớp min/max trong studio.html)
-const TEXT_BOUNDS = { x: [-80, 80], y: [-75, 45], scale: [0.3, 2.6] };
+// Biên chữ được siết để TÂM chữ luôn nằm trong vùng in (composite dùng
+// cx = size*(0.5 + x/100)): ngoài khoảng này chữ sẽ nằm hoàn toàn ngoài
+// composite → biến mất khỏi 3D/print/order dù overlay 2D vẫn vẽ.
+const TEXT_BOUNDS = { x: [-48, 48], y: [-48, 45], scale: [0.3, 2.6] };
 
 function clampNum(v, min, max, fallback = 0) {
   const n = Number(v);
@@ -3004,7 +4237,18 @@ function sanitizeLayer(l) {
   l.scale = clampNum(l.scale, ...LAYER_BOUNDS.scale, 1);
   l.rotation = clampNum(l.rotation, ...LAYER_BOUNDS.rotation);
   l.visible = l.visible !== false;
+  l.locked = l.locked === true; // layer khóa: select được nhưng không sửa được
+  l.opacity = clampNum(l.opacity, 0, 1, 1); // 0..1 — composite + overlay + 3D đồng bộ
   if (!Number.isFinite(l.z)) l.z = 0;
+  // Non-destructive crop state (tỉ lệ vùng gốc): 1 = toàn ảnh. Không bao giờ
+  // phá asset gốc — chỉ là state re-editable.
+  if (!l.crop || typeof l.crop !== 'object') l.crop = null;
+  else {
+    l.crop.x = clampNum(l.crop.x, 0, 1, 0); l.crop.y = clampNum(l.crop.y, 0, 1, 0);
+    l.crop.w = clampNum(l.crop.w, 0.05, 1, 1); l.crop.h = clampNum(l.crop.h, 0.05, 1, 1);
+    if (l.crop.w >= 1 && l.crop.h >= 1 && !l.crop.x && !l.crop.y) l.crop = null;
+  }
+  if (typeof l.name !== 'string') l.name = '';
   clampLayerToPrintArea(l);
   return l;
 }
@@ -3017,23 +4261,28 @@ function sanitizeLayer(l) {
    restore từ history. Bounds trả về qua getLayerLimits() để boundary UI
    (khung giới hạn + HUD) biết chính xác biên hiện tại. */
 function layerPrintLimits(layer) {
-  const s = Number(layer?.scale) || 1;
-  // ratio: bề rộng thực của nội dung trong composite (ảnh = 0.58; chữ ≈ 0.4).
-  const ratio = Number(layer?.ratio) || 0.58;
-  // Nửa kích thước nội dung (% vùng in).
-  const half = Math.min((ratio / 2) * 100 * s, 50);
-  /* VÙNG DI CHUYỂN RỘNG — 2 cấp rõ ràng:
-     • Ảnh nhỏ/vừa (half ≤ 29, tức scale ≤ 1): tâm được thoải mái tới 42% —
-       ảnh có thể tràn ra NGOÀI khung composite (vẫn nằm trên decal plane
-       của áo nên PHẦN TRÀN VẪN IN ĐƯỢC — full-print style). HUD soft-warn
-       khi mép ảnh vượt khung in để người dùng chủ động.
-     • Ảnh to (half > 29): giữ tâm trong 42% — phần ngoài decal plane sẽ bị
-       mép áo che, nhưng trần 42 đảm bảo ảnh luôn nằm TRÊN ÁO. */
-  const TRAVEL = 42; // trần di chuyển tâm (% vùng in)
-  const maxX = TRAVEL;
-  const minY = -Math.min(TRAVEL, 44 - half * 0.35);
-  const maxY = Math.min(TRAVEL, 56 - half * 0.15);
-  return { minX: -maxX, maxX, minY, maxY, half, soft: half > 21 };
+  const isImage = !!(layer && layer.url);
+  const s = Math.max(0.01, Number(layer?.scale) || 1);
+  /* GIỚI HẠN THEO MÉP OBJECT — fix "đi sát viền áo thì bị khuất":
+     Đơn vị layer.x/y = % COMPOSITE (cx = 1024·(0.5 + x/100); ảnh tâm dọc
+     0.44, chữ 0.5). printSizeToUnits trả hx/hy = FULL width/height %
+     composite → NỬA kích thước trong hệ x/y = hx/2, hy/2.
+     Ràng buộc mép object nằm trọn trong [0,1024]:
+       X: |x| ≤ 50 − halfW
+       ảnh Y: y ∈ [halfH − 44, 56 − halfH]   (tâm dọc 44%)
+       chữ Y: y ∈ [halfH − 50, 50 − halfH]   (tâm dọc 50%)
+     → object LUÔN in được 100%, kéo tới đâu thấy nấy, không bị cắt. */
+  let halfW = 29 * s, halfH = 29 * s; // fallback: nửa khung 58%·scale (ảnh vuông)
+  try {
+    const { hx, hy } = isImage ? printSizeToUnits('image', layer) : printSizeToUnits('text', null);
+    if (hx > 0) halfW = hx / 2;
+    if (hy > 0) halfH = hy / 2;
+  } catch (e) { /* fallback đã đặt */ }
+  const mX = Math.max(4, 50 - halfW);
+  const yCenter = isImage ? 44 : 50;
+  const minY = Math.min(-4, halfH - yCenter);
+  const maxY = Math.max(4, (100 - yCenter) - halfH);
+  return { minX: -mX, maxX: mX, minY, maxY, half: Math.max(halfW, halfH), soft: false };
 }
 function clampLayerToPrintArea(layer) {
   if (!layer) return layer;
@@ -3069,10 +4318,25 @@ function syncCurrentDesignFromSelection(side = state.currentView) {
   };
 }
 
+/* PHASE 5 COMPLETION — bảo vệ shape của selection state.
+   Mọi writer/reader dùng state.selectedLayerId như OBJECT {front, back}. Nếu
+   giá trị bị ghi đè thành string (dữ liệu cũ/legacy, hoặc bất kỳ caller nào
+   gán nhầm), thì `state.selectedLayerId[k] = id` trở thành no-op im lặng trên
+   string primitive → "thêm xong không được chọn" mà không có lỗi nào. Chuẩn
+   hoá 1 lần để lỗi này không thể tái diễn. */
+function ensureSelectionShape() {
+  if (state.selectedLayerId && typeof state.selectedLayerId === 'object') return;
+  const legacy = typeof state.selectedLayerId === 'string' ? state.selectedLayerId : null;
+  state.selectedLayerId = { front: null, back: null };
+  if (legacy) state.selectedLayerId[state.currentView] = legacy;
+}
+
 function selectLayer(side, id) {
+  ensureSelectionShape();
   const k = side === 'back' ? 'back' : 'front';
   const layers = sideLayers(k);
   if (id != null && !layers.some(l => l.id === id)) return null;
+  // Layer khóa vẫn CHỌN được (xem/kéo danh sách) nhưng không kéo/sửa transform.
   state.selectedLayerId[k] = id;
   const sel = getSelectedLayer(k);
   if (sel) {
@@ -3087,8 +4351,9 @@ function selectLayer(side, id) {
   return sel;
 }
 
-function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotation, assetId, kind } = {}) {
+function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotation, assetId, kind, opacity, locked, visible, z, crop } = {}) {
   if (!url) return null;
+  ensureSelectionShape(); // layer mới luôn phải ghi được vào selection state
   const k = side === 'back' ? 'back' : 'front';
   const layers = sideLayers(k);
   const maxZ = layers.reduce((m, l) => Math.max(m, Number(l.z) || 0), 0);
@@ -3107,18 +4372,22 @@ function addLayer(side, { url, name, designId, prompt, style, x, y, scale, rotat
     y: y !== undefined ? y : SPAWN_Y[spawnIdx],
     scale: scale !== undefined ? scale : 1,
     rotation: rotation !== undefined ? rotation : 0,
-    visible: true,
-    z: maxZ + 1,
+    opacity: opacity !== undefined ? opacity : 1,
+    locked: locked === true,
+    visible: visible !== false,
+    z: z !== undefined ? z : maxZ + 1,
     name: name || `Mẫu ${layers.length + 1}`,
     designId: designId || null,
     prompt: prompt || '',
     style: style || 'minimalist',
+    crop: crop ? { x: crop.x || 0, y: crop.y || 0, w: crop.w || 1, h: crop.h || 1 } : null, // PHASE 2: duplicate giữ crop ban đầu (sanitize bên dưới)
     createdAt: Date.now(),
   });
   layers.push(layer);
   state.selectedLayerId[k] = layer.id;
   state.printPlacement = { x: layer.x, y: layer.y, scale: layer.scale };
   syncCurrentDesignFromSelection(k);
+  pushDesignUndo('add'); // MỌI đường thêm layer (AI/upload/sticker/duplicate) = 1 entry undo
   return layer;
 }
 
@@ -3198,6 +4467,528 @@ function hasLayerDesigns(side) {
 }
 
 /* ============================================================
+   UNDO / REDO — history toàn diện của mọi thao tác thay đổi design:
+   add/delete/move/resize/rotate/opacity/crop/lock/visibility/reorder/
+   rename/replace/text-style/text-content/alignment/clear-side.
+   Mỗi entry = 1 SNAPSHOT JSON toàn bộ design (cả 2 mặt + text) — đơn giản,
+   bất biến, không bao giờ lệch state. Coalescing: các commit liên tiếp
+   trong ~350ms cùng một label (VD kéo slider/đang kéo chuột) gộp thành
+   MỘT entry — không phình history khi drag liên tục, không memory leak.
+   ============================================================ */
+const DESIGN_UNDO_LIMIT = 80;
+const DESIGN_UNDO_STACKS = { undo: [], redo: [] };
+let designUndoGroup = null;    // { label, until } — nhóm thao tác liên tục đang mở
+let designUndoLast = null;     // snapshot sau commit gần NHẤT (= "trước" của thay đổi kế tiếp)
+let designUndoSuppressed = 0;  // >0: tạm ngưng ghi history (restore nhiều layer = 1 entry)
+
+function designSnapshot() {
+  const dump = (side) => sideLayers(side).map((l) => ({
+    id: l.id, url: l.url, kind: l.kind, assetId: l.assetId,
+    x: l.x, y: l.y, scale: l.scale, rotation: l.rotation || 0,
+    visible: l.visible !== false, locked: l.locked === true,
+    opacity: Number(l.opacity) || 0, z: l.z, name: l.name,
+    designId: l.designId || null, prompt: l.prompt || '', style: l.style || 'minimalist',
+    crop: l.crop ? { ...l.crop } : null, createdAt: l.createdAt || 0,
+  }));
+  return JSON.stringify({
+    front: dump('front'), back: dump('back'),
+    selected: { front: state.selectedLayerId.front, back: state.selectedLayerId.back },
+    customText: state.customText, customTextSides: state.customTextSides,
+    sideTextPlacement: state.sideTextPlacement, sideTextStyle: state.sideTextStyle,
+    sideTextLocked: state.sideTextLocked,
+  });
+}
+
+/* Ghi 1 entry undo. Gọi SAU khi thay đổi đã xảy ra. "Trước" = snapshot của
+   commit gần nhất (designUndoLast) — luôn đồng bộ vì MỌI đường thay đổi đều
+   push. Coalescing: các push cùng label trong cửa sổ 350ms (đang kéo liên tục)
+   gộp thành 1 entry — không phình history khi drag/slider liên tục. */
+function pushDesignUndo(label = 'edit') {
+  if (designUndoSuppressed > 0) return;
+  const snap = designSnapshot();
+  const now = Date.now();
+  if (designUndoGroup && designUndoGroup.label === label && now < designUndoGroup.until) {
+    designUndoGroup.until = now + 350; // nhóm liên tục — entry trước nhóm đã nằm trong stack
+    return;
+  }
+  const pre = designUndoLast;
+  designUndoLast = snap;
+  designUndoGroup = { label, until: now + 350 };
+  if (pre != null && pre !== snap) {
+    DESIGN_UNDO_STACKS.undo.push(pre);
+    if (DESIGN_UNDO_STACKS.undo.length > DESIGN_UNDO_LIMIT) DESIGN_UNDO_STACKS.undo.shift();
+    DESIGN_UNDO_STACKS.redo.length = 0;
+    updateUndoRedoButtons();
+  }
+}
+
+/* Gọi TRƯỚC một thao tác có cấu trúc (pointerdown, batch): đóng nhóm cũ để
+   push kế tiếp luôn tạo entry mới với "trước" = designUndoLast (đúng trạng
+   thái trước thao tác, vì giữa 2 commit không có thay đổi nào khác). */
+function beginDesignUndoBatch(label) {
+  void label;
+  designUndoGroup = null;
+}
+
+/* Gộp nhiều mutation nhỏ thành 1 entry undo (VD khôi phục design từ history). */
+function withDesignUndoSuppressed(fn) {
+  designUndoSuppressed++;
+  try { return fn(); }
+  finally { designUndoSuppressed--; }
+}
+
+function applyDesignSnapshot(json) {
+  let d;
+  try { d = JSON.parse(json); } catch { return false; }
+  if (!d || typeof d !== 'object') return false;
+  const restoreSide = (side, arr) => {
+    state.designLayers[side] = (Array.isArray(arr) ? arr : []).map((l) => sanitizeLayer({ ...l }));
+  };
+  restoreSide('front', d.front); restoreSide('back', d.back);
+  state.selectedLayerId.front = d.selected?.front ?? null;
+  state.selectedLayerId.back = d.selected?.back ?? null;
+  if (typeof d.customText === 'string') state.customText = d.customText;
+  if (d.customTextSides) state.customTextSides = { ...state.customTextSides, ...d.customTextSides };
+  if (d.sideTextPlacement) state.sideTextPlacement = { ...state.sideTextPlacement, ...d.sideTextPlacement };
+  if (d.sideTextStyle) state.sideTextStyle = { ...state.sideTextStyle, ...d.sideTextStyle };
+  if (d.sideTextLocked) state.sideTextLocked = { ...state.sideTextLocked, ...d.sideTextLocked };
+  const k = sideKey();
+  state.printPlacement = { ...getSidePrintPlacement(k) };
+  state.textPlacement = { ...getSideTextPlacement(k) };
+  loadPlacementsForSide(k);
+  state.compositeCacheKey = '';
+  designUndoLast = designSnapshot(); // baseline khớp trạng thái vừa khôi phục
+  designUndoGroup = null;
+  // UI sync đầy đủ sau undo/redo — một nguồn refresh duy nhất.
+  refreshSideViews();
+  syncCustomTextInputs();
+  syncTextStyleControls();
+  updatePrice();
+  updateActionButtons(true);
+  updateBackDesignControls();
+  return true;
+}
+
+function undoDesign() {
+  if (!DESIGN_UNDO_STACKS.undo.length) { showToast('Không còn gì để hoàn tác.', 'info', 1400); return false; }
+  const cur = designSnapshot(); // trạng thái HIỆN TẠI thật — không tin baseline
+  const snap = DESIGN_UNDO_STACKS.undo.pop();
+  DESIGN_UNDO_STACKS.redo.push(cur);
+  designUndoGroup = null;
+  applyDesignSnapshot(snap);
+  updateUndoRedoButtons();
+  showToast('Đã hoàn tác.', 'info', 1400);
+  return true;
+}
+
+function redoDesign() {
+  if (!DESIGN_UNDO_STACKS.redo.length) { showToast('Không còn gì để làm lại.', 'info', 1400); return false; }
+  const cur = designSnapshot();
+  const snap = DESIGN_UNDO_STACKS.redo.pop();
+  DESIGN_UNDO_STACKS.undo.push(cur);
+  designUndoGroup = null;
+  applyDesignSnapshot(snap);
+  updateUndoRedoButtons();
+  showToast('Đã làm lại.', 'info', 1400);
+  return true;
+}
+
+function updateUndoRedoButtons() {
+  const u = document.getElementById('undoDesignBtn');
+  const r = document.getElementById('redoDesignBtn');
+  if (u) u.disabled = !DESIGN_UNDO_STACKS.undo.length;
+  if (r) r.disabled = !DESIGN_UNDO_STACKS.redo.length;
+}
+
+function initDesignUndoRedo() {
+  // Baseline ban đầu = design rỗng hiện tại → hành động add ĐẦU TIÊN cũng
+  // undo được (trả về trạng thái trước khi có mẫu).
+  if (designUndoLast == null) designUndoLast = designSnapshot();
+  document.getElementById('undoDesignBtn')?.addEventListener('click', undoDesign);
+  document.getElementById('redoDesignBtn')?.addEventListener('click', redoDesign);
+  document.addEventListener('keydown', (e) => {
+    const tag = document.activeElement?.tagName;
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag)) return;
+    // CROP MODE shortcuts: Enter = Apply · Esc = Cancel (chuẩn editor chuyên nghiệp)
+    if (isCropMode()) {
+      if (e.key === 'Enter') { e.preventDefault(); exitCropMode({ apply: true }); return; }
+      if (e.key === 'Escape') { e.preventDefault(); exitCropMode({ apply: false }); showToast('Đã hủy cắt — giữ nguyên crop trước đó.', 'info', 1500); return; }
+      if ((e.ctrlKey || e.metaKey) && ['z', 'y'].includes(e.key.toLowerCase())) {
+        e.preventDefault(); showToast('Undo/Redo bị tạm ngưng trong Crop Mode — Apply/Hủy trước.', 'warning', 2000); return;
+      }
+    }
+    const isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z';
+    const isRedo = ((e.ctrlKey || e.metaKey) && (e.shiftKey && e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y'));
+    const isDel = (e.key === 'Delete' || e.key === 'Backspace');
+    const isDup = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd';
+    if (isUndo) { e.preventDefault(); undoDesign(); return; }
+    if (isRedo) { e.preventDefault(); redoDesign(); return; }
+    if (isDup) {
+      const sel = getSelectedLayer();
+      if (sel) { e.preventDefault(); duplicateLayer(state.currentView, sel.id); }
+      return;
+    }
+    if (isDel) {
+      const sel = getSelectedLayer();
+      if (sel && sel.locked) { showToast('Mẫu đang bị khóa — mở khóa để xóa.', 'warning'); e.preventDefault(); return; }
+      if (sel) { e.preventDefault(); removeLayerWithUndo(state.currentView, sel.id); }
+    }
+  });
+  updateUndoRedoButtons();
+}
+
+/* Delete có bảo vệ: layer khóa không xóa được; mọi xóa đều undo được. */
+function removeLayerWithUndo(side, id) {
+  const layer = sideLayers(side).find(l => l.id === id);
+  if (!layer) return false;
+  if (layer.locked) { showToast('Mẫu đang bị khóa — bấm 🔓 trong danh sách lớp để mở khóa trước.', 'warning'); return false; }
+  beginDesignUndoBatch('delete');
+  removeLayer(side, id);
+  const k = side === 'back' ? 'back' : 'front';
+  if (!getSelectedLayer(k) && sideLayers(k).length) {
+    selectLayer(k, [...sideLayers(k)].sort((a, b) => b.z - a.z)[0].id);
+  }
+  pushDesignUndo('delete');
+  refreshSideViews();
+  showToast(`Đã xóa "${layer.name || 'mẫu'}" — Ctrl+Z để hoàn tác.`, 'info', 2200);
+  return true;
+}
+
+/* Duplicate: layer MỚI hoàn toàn (id/transform/z riêng) — không dính gốc.
+   Toàn bộ thuộc tính truyền qua addLayer (1 mutation = 1 entry undo). */
+function duplicateLayer(side, id) {
+  const src = sideLayers(side).find(l => l.id === id);
+  if (!src) return null;
+  beginDesignUndoBatch('duplicate');
+  const created = addLayer(side, {
+    url: src.url, name: (src.name || 'Mẫu') + ' (bản sao)',
+    designId: src.designId, prompt: src.prompt, style: src.style,
+    assetId: src.assetId, kind: src.kind,
+    x: src.x + 6, y: src.y + 4, scale: src.scale, rotation: src.rotation || 0,
+    opacity: Number(src.opacity) || 1,
+    crop: src.crop ? { ...src.crop } : null,
+  });
+  if (created) {
+    refreshSideViews();
+    showToast(`Đã nhân bản "${src.name || 'mẫu'}" — chỉnh bản sao không ảnh hưởng gốc.`, 'success', 2000);
+  }
+  return created;
+}
+
+/* ============================================================
+   PHASE 2 — CROP MODE (professional non-destructive crop/reframe)
+   Hai mode tách bạch tuyệt đối:
+   • NORMAL: move/resize/rotate trực tiếp (selection frame Phase 1)
+   • CROP: khung cắt + reframe + Apply/Cancel — KHÔNG đổi x/y/scale/rotation
+   Temporary state riêng (state.cropSession), chỉ Apply mới commit vào
+   layer.crop → composite → 3D → undo (1 entry). Cancel = 0 entry.
+   Crop là state trên layer: asset gốc KHÔNG BAO GIỜ bị sửa.
+   ============================================================ */
+const CROP_MIN = 0.06; // minCropWidth = minCropHeight = 6% ảnh gốc (sanitize cho phép 5%)
+
+function isCropMode() { return state.cropMode === true; }
+
+function enterCropMode() {
+  if (isCropMode()) return;
+  if (state.interactionMode !== 'position') setInteractionMode('position');
+  if (state.activePlacementLayer === 'text' && getSideCustomText()) { showToast('Crop chỉ áp dụng cho mẫu ảnh — chữ/slogan không hỗ trợ cắt.', 'warning', 2400); return; }
+  const sel = getSelectedLayer();
+  if (!sel) { showToast('Chọn một mẫu ảnh để cắt.', 'warning', 2200); return; }
+  if (sel.locked) { showToast(`"${sel.name || 'Mẫu'}" đang khóa — mở khóa để cắt.`, 'warning', 2000); return; }
+  if (!sel.url) { showToast('Mẫu này không có ảnh để cắt.', 'warning'); return; }
+  state.cropMode = true;
+  // Re-edit: mở ĐÚNG crop hiện tại (không reset về full) — Crop Again = previous frame.
+  const c = (sel.crop && sel.crop.w > 0 && sel.crop.h > 0) ? { x: sel.crop.x, y: sel.crop.y, w: sel.crop.w, h: sel.crop.h } : { x: 0, y: 0, w: 1, h: 1 };
+  state.cropSession = { layerId: sel.id, side: state.currentView, draft: c, orig: c ? { ...c } : null };
+  document.body.classList.add('crop-mode-active');
+  const tb = document.getElementById('cropToolbar');
+  const hint = document.getElementById('cropToolbarHint');
+  if (tb) tb.hidden = false;
+  if (hint) hint.hidden = false;
+  ensureCropFrame();
+  updateCropFrameFromSession();
+  syncCropModeUI();
+  showToast('Crop Mode: kéo góc để định vùng giữ, kéo ảnh bên trong để reframe.', 'info', 2600);
+}
+
+function exitCropMode({ apply = false, silent = false } = {}) {
+  if (!isCropMode()) return;
+  const session = state.cropSession;
+  state.cropMode = false;
+  state.cropSession = null;
+  document.body.classList.remove('crop-mode-active');
+  destroyCropFrame();
+  const tb = document.getElementById('cropToolbar');
+  const hint = document.getElementById('cropToolbarHint');
+  if (tb) tb.hidden = true;
+  if (hint) hint.hidden = true;
+  if (apply && session) {
+    const layer = sideLayers(session.side || state.currentView).find(l => l.id === session.layerId);
+    if (layer) {
+      const d = sanitizeCropRect(session.draft);
+      const full = d.w >= 1 - 1e-6 && d.h >= 1 - 1e-6 && d.x <= 1e-6 && d.y <= 1e-6;
+      layer.crop = full ? null : d;
+      // commit chuỗi chuẩn: chokepoint → cache key → 3D (tôn trọng mọi pipeline hiện có)
+      commitActivePlacements();
+      pushDesignUndo('crop'); // ĐÚNG 1 logical entry cho cả phiên crop (suppressed các đường live)
+      refreshSideViews();
+    }
+  }
+  syncCropModeUI();
+  if (!silent && !apply) { /* cancel path */ }
+}
+
+function sanitizeCropRect(c) {
+  const cl = (v, a, b, f) => (Number.isFinite(Number(v)) ? Math.min(b, Math.max(a, Number(v))) : f);
+  const x = cl(c?.x, 0, 1, 0), y = cl(c?.y, 0, 1, 0);
+  const w = cl(c?.w, CROP_MIN, 1 - x, 1), h = cl(c?.h, CROP_MIN, 1 - y, 1);
+  return { x: +x.toFixed(4), y: +y.toFixed(4), w: +w.toFixed(4), h: +h.toFixed(4) };
+}
+
+function isCropTarget(layer) {
+  if (!isCropMode() || !state.cropSession) return false;
+  return state.cropSession.layerId === layer.id && (state.cropSession.side || state.currentView) === state.currentView;
+}
+
+/* ---- CROP FRAME: dựng 1 lần, cập nhật bằng style (không rebuild khi kéo) ---- */
+function ensureCropFrame() {
+  if (cropFrame.el && document.contains(cropFrame.el)) return cropFrame.el;
+  const viewer = document.getElementById('canvasViewer');
+  if (!viewer) return null;
+  const el = document.createElement('div');
+  el.className = 'crop-frame';
+  el.innerHTML = `
+    <div class="crop-img-holder">
+      <img class="crop-img" alt="" draggable="false">
+      <div class="crop-dim"></div>
+      <div class="crop-window">
+        <span class="crop-c" data-crop="nw"></span>
+        <span class="crop-c" data-crop="ne"></span>
+        <span class="crop-c" data-crop="sw"></span>
+        <span class="crop-c" data-crop="se"></span>
+        <span class="crop-e" data-crop="n"></span>
+        <span class="crop-e" data-crop="s"></span>
+        <span class="crop-e" data-crop="w"></span>
+        <span class="crop-e" data-crop="e"></span>
+      </div>
+    </div>
+    <span class="crop-badge">CROP</span>`;
+  viewer.appendChild(el);
+  cropFrame.el = el;
+  cropFrame.img = el.querySelector('.crop-img');
+  cropFrame.dim = el.querySelector('.crop-dim');
+  cropFrame.win = el.querySelector('.crop-window');
+  wireCropFrame(el);
+  return el;
+}
+
+function destroyCropFrame() {
+  cropFrame.el?.remove();
+  cropFrame.el = null; cropFrame.img = null; cropFrame.dim = null; cropFrame.win = null;
+}
+
+/* Áp draft vào frame: holder = TOÀN BỘ ảnh gốc (đúng transform layer),
+   window = vùng giữ (crop draft) — image ĐẦY ĐỦ nhìn thấy để reframe.
+   Anchor ưu tiên PROJECTION 3D (bám decal khi áo xoay) → node overlay 2D. */
+function updateCropFrameFromSession() {
+  const el = ensureCropFrame();
+  const session = state.cropSession;
+  if (!el || !session) return;
+  const layer = sideLayers(session.side || state.currentView).find(l => l.id === session.layerId);
+  if (!layer) { exitCropMode({ silent: true }); return; }
+  if (cropFrame.img.dataset.layerId !== layer.id) {
+    cropFrame.img.src = layer.url; cropFrame.img.dataset.layerId = layer.id;
+  }
+  // Geometry gốc hiển thị (chưa xoay) + center + rotation.
+  const geo = cropAnchorGeometry(layer);
+  if (!geo) { cropFrame.el.classList.remove('active'); stopCropTracking(); return; }
+  const d = sanitizeCropRect(session.draft);
+  // Holder phủ đúng toàn bộ ảnh gốc (rect chưa xoay quanh tâm).
+  cropFrame.el.classList.add('active');
+  el.style.width = `${geo.w}px`;
+  el.style.height = `${geo.h}px`;
+  el.style.left = `${geo.cx}px`;
+  el.style.top = `${geo.cy}px`;
+  el.style.transform = `translate(-50%, -50%) rotate(${layer.rotation || 0}deg)`;
+  // Cửa sổ giữ = vùng draft trong hệ ảnh gốc (top-left anchored).
+  cropFrame.win.style.left = `${d.x * 100}%`;
+  cropFrame.win.style.top = `${d.y * 100}%`;
+  cropFrame.win.style.width = `${d.w * 100}%`;
+  cropFrame.win.style.height = `${d.h * 100}%`;
+  // Dim mask theo cùng draft (CSS vars cho clip-path evenodd).
+  if (cropFrame.dim) {
+    cropFrame.dim.style.setProperty('--cx', `${d.x * 100}%`);
+    cropFrame.dim.style.setProperty('--cy', `${d.y * 100}%`);
+    cropFrame.dim.style.setProperty('--cw', `${d.w * 100}%`);
+    cropFrame.dim.style.setProperty('--ch', `${d.h * 100}%`);
+  }
+  cropFrame.el.dataset.cropping = '1';
+  startCropTracking();
+}
+
+/* Anchor 3D/projection trước, 2D node fallback — y hệt selectionGeometry. */
+function cropAnchorGeometry(layer) {
+  const viewer = document.getElementById('canvasViewer');
+  if (!viewer) return null;
+  const vr = viewer.getBoundingClientRect();
+  const rot = Number(layer.rotation) || 0;
+  const V = window.tshirt360Viewer;
+  if (viewer.classList.contains('has-real-3d') && V?.screenPosFromPrintPoint) {
+    const { hx, hy } = printSizeToUnits('image', layer);
+    const pC = V.screenPosFromPrintPoint(layer.x, layer.y, state.currentView);
+    const pA = V.screenPosFromPrintPoint(layer.x + hx, layer.y, state.currentView);
+    const pB = V.screenPosFromPrintPoint(layer.x - hx, layer.y, state.currentView);
+    const pCv = V.screenPosFromPrintPoint(layer.x, layer.y + hy, state.currentView);
+    const pD = V.screenPosFromPrintPoint(layer.x, layer.y - hy, state.currentView);
+    if (pC && pA && pB && pCv && pD) {
+      return { w: Math.max(12, Math.hypot(pA.x - pB.x, pA.y - pB.y)), h: Math.max(12, Math.hypot(pCv.x - pD.x, pCv.y - pD.y)), cx: pC.x - vr.left, cy: pC.y - vr.top, rot };
+    }
+  }
+  const node = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(layer.id)}"]`);
+  if (node) {
+    const s = Math.max(0.01, Number(layer.scale) || 1);
+    const rect = node.getBoundingClientRect();
+    if (rect.width > 2) {
+      try {
+        const m = new DOMMatrixReadOnly(getComputedStyle(node).transform);
+        const sc = Math.hypot(m.a, m.b) || s;
+        return { w: rect.width / sc, h: rect.height / sc, cx: rect.left + rect.width / 2 - vr.left, cy: rect.top + rect.height / 2 - vr.top, rot };
+      } catch (e) { /* */ }
+    }
+  }
+  return null;
+}
+
+/* Camera 3D động (lerp/auto-rotate) → frame phải bám liên tục như selection frame. */
+let cropTrackRaf = 0;
+function stopCropTracking() { if (cropTrackRaf) { cancelAnimationFrame(cropTrackRaf); cropTrackRaf = 0; } }
+function startCropTracking() {
+  if (cropTrackRaf) return;
+  const tick = () => {
+    cropTrackRaf = requestAnimationFrame(tick);
+    if (!isCropMode()) { stopCropTracking(); return; }
+    updateCropFrameFromSession();
+  };
+  cropTrackRaf = requestAnimationFrame(tick);
+}
+
+/* ---- Crop frame interaction: corner/edge = resize draft · drag inside = REFRAME ---- */
+function wireCropFrame(el) {
+  el.addEventListener('pointerdown', (e) => {
+    if (!isCropMode()) return;
+    e.stopPropagation(); e.preventDefault();
+    const session = state.cropSession;
+    if (!session) return;
+    const layer = sideLayers(session.side || state.currentView).find(l => l.id === session.layerId);
+    if (!layer) return;
+    const handle = e.target.closest('[data-crop]');
+    const geo = cropAnchorGeometry(layer);
+    if (!geo) return;
+    const vr = document.getElementById('canvasViewer').getBoundingClientRect();
+    const startClient = { x: e.clientX, y: e.clientY };
+    // px → % ảnh gốc: holder w px = 100% ảnh.
+    /* PHASE 5 SVG P0 (phát hiện khi verify crop): crop rect là FRACTION 0..1
+       (sanitizeCropRect/CROP_MIN) nhưng ppx cũ = 100/geo.w trả về PERCENT →
+       1px kéo ≈ 100× sai → mọi gesture luôn clamp thẳng về biên (thu nhỏ tức thì
+       về CROP_MIN hoặc reframe nhảy về 0) khiến Crop Mode không dùng được.
+       Đo trước fix: geo 27px, kéo SE 13px → w/h = 0.06 (min) thay vì ~0.5.
+       Giờ chuẩn hoá px → fraction; semantics crop không đổi. */
+    const ppx = 1 / Math.max(8, geo.w), ppy = 1 / Math.max(8, geo.h);
+    const d0 = { ...sanitizeCropRect(session.draft) };
+    const mode = handle ? handle.dataset.crop : 'move'; // move = REFRAME
+    try { el.setPointerCapture?.(e.pointerId); } catch (err) { /* synthetic/edge pointerId */ }
+    let moved = false;
+    const onMove = (ev) => {
+      const sdx = ev.clientX - startClient.x, sdy = ev.clientY - startClient.y;
+      const p = { x: sdx * ppx, y: sdy * ppy };
+      if (!moved && Math.abs(sdx) + Math.abs(sdy) < 2) return;
+      moved = true;
+      const d = { ...d0 };
+      if (mode === 'move') {
+        // REFRAME: dịch ảnh bên trong khung — ngược với dịch khung.
+        d.x = clampNum(d0.x - p.x, 0, 1 - d0.w, 0);
+        d.y = clampNum(d0.y - p.y, 0, 1 - d0.h, 0);
+        updateDragHud({ extra: `reframe x:${Math.round(d.x * 100)} y:${Math.round(d.y * 100)}` });
+      } else {
+        // Resize khung theo handle (corner/edge) — min/max chuẩn §5.
+        if (mode.includes('w')) { d.x = clampNum(d0.x + p.x, 0, d0.x + d0.w - CROP_MIN, 0); d.w = d0.x + d0.w - d.x; }
+        if (mode.includes('e')) { d.w = clampNum(d0.w + p.x, CROP_MIN, 1 - d.x, d0.w); }
+        if (mode.includes('n')) { d.y = clampNum(d0.y + p.y, 0, d0.y + d0.h - CROP_MIN, 0); d.h = d0.y + d0.h - d.y; }
+        if (mode.includes('s')) { d.h = clampNum(d0.h + p.y, CROP_MIN, 1 - d.y, d0.h); }
+        updateDragHud({ extra: `${Math.round(d.w * 100)}×${Math.round(d.h * 100)}%` });
+      }
+      session.draft = d;
+      updateCropFrameFromSession();
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
+      hideDragHud();
+      // KHÔNG pushDesignUndo ở đây — Apply mới tạo 1 entry duy nhất.
+      void moved;
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  });
+}
+
+/* Slider W/H: draft trong crop mode, layer.crop ngoài mode — 1 gesture = 1 entry
+   (bỏ push-per-tick cũ; push 1 lần ở 'change'). */
+function applyCropSlider(axis, v) {
+  const target = isCropMode()
+    ? sideLayers(state.cropSession?.side || state.currentView).find(l => l.id === state.cropSession?.layerId)
+    : getSelectedLayer();
+  if (!target) return;
+  const val = clampNum(Number(v ?? 100) / 100, 0.2, 1, 1);
+  if (isCropMode()) {
+    const d = { ...sanitizeCropRect(state.cropSession.draft) };
+    if (axis === 'w') { const cx = d.x + d.w / 2; d.w = val; d.x = clampNum(cx - val / 2, 0, 1 - val, 0); }
+    else { const cy = d.y + d.h / 2; d.h = val; d.y = clampNum(cy - val / 2, 0, 1 - val, 0); }
+    state.cropSession.draft = d;
+    updateCropFrameFromSession();
+  } else {
+    const cur = target.crop || { x: 0, y: 0, w: 1, h: 1 };
+    target.crop = axis === 'w'
+      ? { x: Math.min(cur.x, 1 - val) / 2, y: cur.y, w: val, h: cur.h }
+      : { x: cur.x, y: Math.min(cur.y, 1 - val) / 2, w: cur.w, h: val };
+    if (target.crop.w >= 1 && target.crop.h >= 1) target.crop = null;
+    commitActivePlacements();
+    refreshSideViews();
+  }
+}
+
+function syncCropModeUI() {
+  const btn = document.getElementById('qaCrop');
+  if (btn) btn.classList.toggle('active', isCropMode());
+  const sel = getSelectedLayer();
+  if (sel) {
+    const show = isCropMode() && state.cropSession ? state.cropSession.draft : (sel.crop || { w: 1, h: 1 });
+    const wEl = document.getElementById('layerCropW'); const hEl = document.getElementById('layerCropH');
+    if (wEl && document.activeElement !== wEl) wEl.value = Math.round(show.w * 100);
+    if (hEl && document.activeElement !== hEl) hEl.value = Math.round(show.h * 100);
+  }
+}
+
+function initCropMode() {
+  document.getElementById('qaCrop')?.addEventListener('click', () => { isCropMode() ? exitCropMode({ apply: false }) : enterCropMode(); });
+  document.getElementById('cropApplyBtn')?.addEventListener('click', () => exitCropMode({ apply: true }));
+  document.getElementById('cropCancelBtn')?.addEventListener('click', () => { exitCropMode({ apply: false }); showToast('Đã hủy cắt — giữ nguyên crop trước đó.', 'info', 1500); });
+  document.getElementById('cropResetBtn2')?.addEventListener('click', () => {
+    if (!isCropMode()) return;
+    const session = state.cropSession;
+    if (!session) return;
+    const layer = sideLayers(session.side || state.currentView).find(l => l.id === session.layerId);
+    if (layer) {
+      layer.crop = null; session.draft = { x: 0, y: 0, w: 1, h: 1 };
+      commitActivePlacements(); pushDesignUndo('crop'); refreshSideViews();
+      showToast('Đã xóa cắt — dùng toàn bộ ảnh gốc (Ctrl+Z để hoàn tác).', 'success', 1800);
+    }
+  });
+}
+
+/* ============================================================
    3D VIEWER
    ============================================================ */
 /* Kéo layer TRỰC TIẾP trên khung 3D (chế độ Vị trí).
@@ -3211,16 +5002,26 @@ function initCanvasLayerDrag() {
   let dragging = false, lastX = 0, lastY = 0, layer = null;
   let dragSrc = null, dragRect = null, previewStarted = false;
   container.addEventListener('pointerdown', (e) => {
+    if (isCropMode()) return; // CROP MODE: canvas gestures thuộc về crop frame
     if (state.interactionMode !== 'position') return; // rotate mode: tilt áo
     if (e.button !== undefined && e.button !== 0) return;
-    // Kéo chữ (textPlacement) hoặc kéo layer ảnh — phân nhánh SẠCH: mode
-    // text thì layer luôn null (bug cũ: truy cập layer.id khi null → crash,
-    // drag chết luôn cả phiên).
-    const isTextDrag = state.activePlacementLayer === 'text' && getSideCustomText();
+    // Kéo cái gì? ƯỚNG theo VỊ TRÍ CON TRỎ THẬT (hit-test): trúng chữ → kéo
+    // chữ; trúng layer ảnh → kéo ảnh. Trước đây activePlacementLayer='text'
+    // bắt MỌI pointerdown thành kéo chữ → sau khi tạo chữ KHÔNG THỂ chọn/kéo
+    // lại ảnh nữa (bug người dùng báo). Không trúng gì → theo object active
+    // (giữ hành vi cũ cho vùng trống).
+    const hit = hitTestPrintObject(e.clientX, e.clientY);
+    const isTextDrag = hit ? hit.kind === 'text' : (state.activePlacementLayer === 'text' && getSideCustomText());
+    if (hit) {
+      if (hit.kind === 'text') setActivePlacementLayer('text');
+      else { selectLayer(state.currentView, hit.layer.id); setActivePlacementLayer('image'); }
+    }
     if (isTextDrag) {
       layer = null;
+      if (getSideTextLocked()) { showToast('Chữ đang khóa — mở khóa để di chuyển.', 'warning', 1700); return; }
     } else {
       layer = getSelectedLayer();
+      if (layer?.locked) { showToast(`"${layer.name || 'Mẫu'}" đang khóa — bấm 🔓 để mở.`, 'warning', 1700); return; }
       if (!layer) {
         const top = [...sideLayers(state.currentView)].filter(l => l.visible !== false && l.url).sort((a, b) => b.z - a.z)[0];
         if (!top) return;
@@ -3229,27 +5030,70 @@ function initCanvasLayerDrag() {
         showToast(`Đang kéo: ${top.name || 'mẫu'} — đổi mẫu cần kéo trong danh sách lớp.`, 'info', 2200);
       }
     }
-    // Đo rect trên overlay img thật (nếu hiển thị) — để preview xuất hiện
-    // NGAY đúng vị trí ảnh, không nhảy.
-    const overlayImg = !isTextDrag && layer
-      ? document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(layer.id)}"]`)
-      : null;
-    dragRect = overlayImg && overlayImg.getBoundingClientRect().width > 4 ? overlayImg.getBoundingClientRect() : null;
+    // Rect preview: 3D đo bằng PROJECTION decal (printObjectScreenRect —
+    // đúng kích thước thật trên áo, hết "kéo to ra rồi giật về"); 2D fallback
+    // node overlay. Trước đây ước lượng → preview lệch decal thật.
+    if (isTextDrag) {
+      dragRect = null; // nhánh move sẽ đo qua printObjectScreenRect
+    } else {
+      const r = printObjectScreenRect('image', layer);
+      if (r && r.w > 4) {
+        dragRect = { left: r.cx - r.w / 2, top: r.cy - r.h / 2, width: r.w, height: r.h, right: r.cx + r.w / 2, bottom: r.cy + r.h / 2, x: r.cx - r.w / 2, y: r.cy - r.h / 2, toJSON() {} };
+      } else {
+        const overlayImg = layer ? document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(layer.id)}"]`) : null;
+        dragRect = overlayImg && overlayImg.getBoundingClientRect().width > 4 ? overlayImg.getBoundingClientRect() : null;
+      }
+    }
     dragSrc = isTextDrag ? null : layer.url;
     previewStarted = false;
     dragging = true;
     lastX = e.clientX; lastY = e.clientY;
     try { container.setPointerCapture(e.pointerId); } catch (err) { /* */ }
     e.preventDefault();
+    beginDesignUndoBatch(isTextDrag ? 'text-move' : 'move');
+  });
+  // PHASE 1: CHỌN object bằng cách TAP/TRỰC TIẾP trên khung 3D (khi không kéo):
+  // select theo z-index (decal vẽ theo z), phân biệt tap vs drag bằng khoảng
+  // moved. Kéo chữ nếu text đang active, else image; click vùng trống → theo
+  // object có sẵn (không deselect — giữ UX an toàn).
+  let tapStart = null;
+  container.addEventListener('pointerdown', (e) => {
+    if (isCropMode()) return; // tap-select off trong crop mode
+    if (state.interactionMode !== 'position') return;
+    tapStart = { x: e.clientX, y: e.clientY, t: Date.now() };
+  });
+  container.addEventListener('pointerup', (e) => {
+    if (!tapStart) return;
+    const movedFar = Math.hypot(e.clientX - tapStart.x, e.clientY - tapStart.y) > 6 || (Date.now() - tapStart.t) > 600;
+    tapStart = null;
+    if (movedFar) return;
+    // Tap ngắn: chọn ĐÚNG object dưới ngón/chuột (hit-test thật, text kiểm
+    // trước vì vẽ trên cùng trong composite) — không còn "text luôn thắng".
+    const hit = hitTestPrintObject(e.clientX, e.clientY);
+    if (hit?.kind === 'text') {
+      setActivePlacementLayer('text');
+      refreshSelectionFrameSoon();    } else if (hit?.layer) {
+      selectLayer(state.currentView, hit.layer.id);
+      setActivePlacementLayer('image');
+      refreshSelectionFrameSoon();
+    } else if (state.activePlacementLayer === 'text' && getSideCustomText()) {
+      setActivePlacementLayer('text');
+      refreshSelectionFrameSoon();
+    } else {
+      const top = [...sideLayers(state.currentView)].filter(l => l.visible !== false && l.url).sort((a, b) => b.z - a.z)[0];      if (top) { selectLayer(state.currentView, top.id); setActivePlacementLayer('image'); refreshSelectionFrameSoon(); }
+    }
   });
   container.addEventListener('pointermove', (e) => {
     if (!dragging) return;
     if (!previewStarted) {
       previewStarted = true;
-      // Kéo chữ: dựng preview ảnh chữ thật (canvas → dataURL) — chữ bám tay
-      // từng pixel y hệt layer ảnh, không phân biệt.
-      const srcForPreview = dragSrc || buildTextDragPreviewUrl();
-      beginLayerDragPreview(srcForPreview, dragRect, e.clientX, e.clientY, state.textPlacement.scale, { ratio: 0.4 });
+      // Preview SIZE = projection THẬT của object ĐANG KÉO (chữ hoặc ảnh):
+      // hết "kéo giữ to ra, thả ra giật về size cũ" do ước lượng lệch decal.
+      const draggingText = !layer; // nhánh canvas: layer=null khi kéo chữ
+      const objR = draggingText ? printObjectScreenRect('text', null) : null;
+      const srcForPreview = draggingText ? (dragSrc || buildTextDragPreviewUrl()) : dragSrc;
+      beginLayerDragPreview(srcForPreview, dragRect, e.clientX, e.clientY, draggingText ? 1 : (layer.scale || 1),
+        objR ? { rectPx: { w: objR.w, h: objR.h, left: objR.cx - objR.w / 2, top: objR.cy - objR.h / 2 } } : {});
     }
     moveLayerDragPreview(e.clientX, e.clientY);
     const w = container.clientWidth || 1;
@@ -3262,12 +5106,36 @@ function initCanvasLayerDrag() {
     lastX = e.clientX; lastY = e.clientY;
     if (state.activePlacementLayer === 'text' && !layer) {
       const tp = state.textPlacement;
-      tp.x = clampNum(tp.x + dx, -80, 80);
-      tp.y = clampNum(tp.y + dy, -75, 45);
-      const sn = snapPlacement({ x: tp.x, y: tp.y }, { bypass: e.altKey, siblings: siblingSnapTargets(state.currentView, null), layer: { scale: tp.scale, ratio: 0.4 } });
+      // Dùng CHUNG TEXT_BOUNDS — trước đây hardcode -80/80 & -75/45 nên kéo
+      // trên canvas có thể đẩy chữ ra ngoài vùng in (mất khỏi composite/3D/order).
+      tp.x = clampNum(tp.x + dx, ...TEXT_BOUNDS.x);
+      tp.y = clampNum(tp.y + dy, ...TEXT_BOUNDS.y);
+      /* GROUP MOVE: kéo chữ trên canvas cũng kéo theo ảnh đang chọn —
+         đổi % chữ sang % ảnh theo CHUẨN COMPOSITE (decal 3D là render cuối):
+         1% ảnh = 0.58×scale% chữ theo x; trục y nhân thêm tỉ lệ khung ảnh. */
+      if (groupMoveEnabled()) {
+        const sel = getSelectedLayer(state.currentView);
+        if (sel && !sel.locked) {
+          const sc = Number(sel.scale) || 1;
+          const ir = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(sel.id)}"]`)?.getBoundingClientRect();
+          const ar = ir && ir.width > 1 ? ir.height / ir.width : 1;
+          sel.x = clampNum(sel.x + dx * 0.58 * sc, ...LAYER_BOUNDS.x);
+          sel.y = clampNum(sel.y + dy * 0.58 * sc * ar, ...LAYER_BOUNDS.y);
+        }
+      }
+      const sn = snapPlacement({ x: tp.x, y: tp.y }, { bypass: e.altKey, siblings: siblingSnapTargets(state.currentView, null), layer: { kind: 'text', scale: tp.scale } });
       tp.x = sn.x; tp.y = sn.y;
       updateDragHud({ x: tp.x, y: tp.y, snapLabel: sn.snapLabel, limitLabel: sn.limitLabel });
     } else if (layer) {
+      /* GROUP MOVE: kéo ảnh trên canvas cũng kéo theo chữ — đổi % ảnh sang
+         % chữ theo CHUẨN COMPOSITE (1% ảnh = 0.58×scale% chữ; y nhân h/w). */
+      if (groupMoveEnabled() && getSideCustomText() && !getSideTextLocked()) {
+        const sc = Number(layer.scale) || 1;
+        const nr = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(layer.id)}"]`)?.getBoundingClientRect();
+        const ar = nr && nr.width > 1 ? nr.height / nr.width : 1;
+        state.textPlacement.x = clampNum(state.textPlacement.x + dx * 0.58 * sc, ...TEXT_BOUNDS.x);
+        state.textPlacement.y = clampNum(state.textPlacement.y + dy * 0.58 * sc * ar, ...TEXT_BOUNDS.y);
+      }
       layer.x = clampNum(layer.x + dx, ...LAYER_BOUNDS.x);
       layer.y = clampNum(layer.y + dy, ...LAYER_BOUNDS.y);
       const sn = snapPlacement({ x: layer.x, y: layer.y }, { bypass: e.altKey, siblings: siblingSnapTargets(state.currentView, layer.id), layer });
@@ -3276,14 +5144,25 @@ function initCanvasLayerDrag() {
     } else { return; }
     commitActivePlacements();
     syncPlacementInputs();
-    renderLayersOverlay();
+    // MƯỢT: trong khi kéo chỉ update node overlay hiện có + input (KHÔNG rebuild
+    // DOM mỗi pixel chuột — renderLayersOverlay() tái tạo innerHTML là nguồn gốc
+    // giật khi kéo trên canvas). Rebuild đầy đủ 1 lần khi thả.
+    if (layer) {
+      const node = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(layer.id)}"]`);
+      if (node) moveOverlayLayerNode(node, layer);
+    }
     scheduleViewerUpdate();
   });
   const stop = () => {
     if (!dragging) return;
+    const movedAny = previewStarted;
     dragging = false; layer = null;
     hideSnapGuides(); hideDragHud(); hidePrintBoundary();
     endLayerDragPreview();
+    if (movedAny) {
+      pushDesignUndo('move');
+      renderLayersOverlay(); // rebuild 1 lần khi thả — list/z/overlay khớp state
+    }
   };
   container.addEventListener('pointerup', stop);
   container.addEventListener('pointercancel', stop);
@@ -3293,19 +5172,31 @@ function initCanvasLayerDrag() {
   // chuẩn của mọi phần mềm thiết kế — không conflict với page scroll vì
   // preventDefault trong canvas.
   container.addEventListener('wheel', (e) => {
+    if (isCropMode()) return; // crop mode: wheel không đổi scale layer
     if (state.interactionMode !== 'position') return;
     e.preventDefault();
     const stepDir = e.deltaY < 0 ? 1 : -1;
     const step = e.ctrlKey ? 0.12 : 0.05;
+    // PHASE 3: tính trước giá trị scale mới — chỉ commit/rebuild khi THỰC SỰ đổi
+    // (tránh rebuild DOM + composite mù mỗi notch khi locked/no-selection/bão hòa).
+    let changed = false;
     if (state.activePlacementLayer === 'text' && getSideCustomText()) {
+      if (getSideTextLocked()) { showToast('Chữ đang khóa.', 'warning', 1400); return; }
       const tp = state.textPlacement;
-      tp.scale = clampNum(tp.scale + stepDir * step, ...TEXT_BOUNDS.scale, 1);
+      const ns = clampNum(tp.scale + stepDir * step, ...TEXT_BOUNDS.scale, 1);
+      if (ns !== tp.scale) { tp.scale = ns; changed = true; }
     } else {
       const sel = getSelectedLayer();
       if (!sel) return;
-      sel.scale = clampNum(sel.scale + stepDir * step, ...LAYER_BOUNDS.scale, 1);
-      state.printPlacement = { x: sel.x, y: sel.y, scale: sel.scale };
+      if (sel.locked) { showToast(`"${sel.name || 'Mẫu'}" đang khóa.`, 'warning', 1400); return; }
+      const ns = clampNum(sel.scale + stepDir * step, ...LAYER_BOUNDS.scale, 1);
+      if (ns !== sel.scale) {
+        sel.scale = ns;
+        state.printPlacement = { x: sel.x, y: sel.y, scale: sel.scale };
+        changed = true;
+      }
     }
+    if (!changed) return;
     commitActivePlacements();
     syncPlacementInputs();
     renderLayersOverlay();
@@ -3356,10 +5247,11 @@ function alignLayersRow(axis) {
   showToast(`Đã xếp thẳng ${axis === 'x' ? 'cột dọc' : 'hàng ngang'} qua mẫu đang chọn.`, 'success', 1600);
 }
 function initAlignTools() {
-  document.getElementById('distributeH')?.addEventListener('click', () => distributeLayers('x'));
-  document.getElementById('distributeV')?.addEventListener('click', () => distributeLayers('y'));
-  document.getElementById('alignRowH')?.addEventListener('click', () => alignLayersRow('x'));
-  document.getElementById('alignColV')?.addEventListener('click', () => alignLayersRow('y'));
+  const guard = (fn) => () => { if (isCropMode()) { showToast('Đang ở Crop Mode — Apply/Hủy trước khi căn chỉnh.', 'warning', 1800); return; } fn(); };
+  document.getElementById('distributeH')?.addEventListener('click', guard(() => distributeLayers('x')));
+  document.getElementById('distributeV')?.addEventListener('click', guard(() => distributeLayers('y')));
+  document.getElementById('alignRowH')?.addEventListener('click', guard(() => alignLayersRow('x')));
+  document.getElementById('alignColV')?.addEventListener('click', guard(() => alignLayersRow('y')));
 }
 
 function initThreeViewer() {
@@ -3412,6 +5304,18 @@ function initCss3DViewer() {
 /* ============================================================
    ORDER FLOW
    ============================================================ */
+/* PHASE 5 FINAL — ORDER IDEMPOTENCY (client dùng hạ tầng server có sẵn).
+   Server: `Idempotency-Key` + cùng body → trả lại ĐÚNG đơn cũ (200, idempotent:true),
+   không tạo đơn thứ hai; cùng key + body khác → 409. Trước đây client KHÔNG gửi
+   header này nên double-submit/retry tạo nhiều đơn thật.
+   Quy tắc: 1 "lượt đặt hàng" (mở modal → submit, kể cả retry trong lúc modal còn mở)
+   = 1 key; mở modal mới = key mới (đơn logic mới). */
+function newOrderIdempotencyKey() {
+  const rnd = window.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  return `order-${rnd}`;
+}
+let orderSubmitting = false; // defense-in-depth: chặn submit thứ hai khi đang gửi
+
 function initOrderFlow() {
   const modal = document.getElementById('orderModal');
   const form = document.getElementById('orderForm');
@@ -3433,6 +5337,8 @@ function initOrderFlow() {
     if (requireAuth()) return;
     if (!state.currentDesign && !hasFrontContent() && !hasBackContent()) { showToast('Hãy tạo thiết kế trước khi đặt hàng.', 'warning'); return; }
     updateOrderSummary();
+    // Đơn logic MỚI → key MỚI. Retry trong lúc modal còn mở dùng lại key này.
+    state.orderIdempotencyKey = newOrderIdempotencyKey();
     if (auth.isLoggedIn()) {
       const nameInput = document.getElementById('orderName');
       if (nameInput && !nameInput.value) nameInput.value = auth.user?.fullName || auth.user?.username || '';
@@ -3489,6 +5395,7 @@ function updateOrderSummary() {
 }
 
 function resetOrderModal() {
+  state.orderIdempotencyKey = ''; // đóng modal → lượt đặt hàng tiếp theo là đơn logic mới
   document.getElementById('orderFormContent').style.display = 'block';
   document.getElementById('orderSuccess').style.display = 'none';
   document.getElementById('bankTransferBox').style.display = 'none';
@@ -3516,6 +5423,9 @@ async function submitOrder() {
   else if (address.length > HARDEN_LIMITS.addressMax) { setFieldError(addressEl, document.getElementById('orderAddressError'), `Địa chỉ quá dài (${address.length}/${HARDEN_LIMITS.addressMax}).`); firstInvalid = firstInvalid || addressEl; }
   if (firstInvalid) { shakeButton(submitBtn); firstInvalid.focus(); showToast('Vui lòng kiểm tra lại thông tin giao hàng.', 'warning'); return; }
 
+  if (orderSubmitting) return; // đang gửi — không gửi chồng
+  orderSubmitting = true;
+  const idempotencyKey = state.orderIdempotencyKey || (state.orderIdempotencyKey = newOrderIdempotencyKey());
   const originalBtnHtml = submitBtn.innerHTML;
   submitBtn.disabled = true;
   submitBtn.innerHTML = 'Đang xử lý…';
@@ -3549,12 +5459,17 @@ async function submitOrder() {
   try {
     const resp = await fetchWithTimeout(`${API_BASE}/orders`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: auth.token ? `Bearer ${auth.token}` : '' },
+      headers: { 'Content-Type': 'application/json', Authorization: auth.token ? `Bearer ${auth.token}` : '', 'Idempotency-Key': idempotencyKey },
       body: JSON.stringify(orderData),
     }, 15000);
     const data = await resp.json().catch(() => ({}));
     if (resp.status === 401) { showToast('Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.', 'warning', 5000); showStudioAuthPrompt('expired'); throw new Error('Unauthorized'); }
     if (resp.status === 429) throw new Error('Bạn thao tác quá nhanh. Vui lòng đợi 30 giây rồi thử lại.');
+    // 409 = key này đã gắn với dữ liệu khác → cấp key mới để người dùng gửi lại được
+    if (resp.status === 409) {
+      state.orderIdempotencyKey = newOrderIdempotencyKey();
+      throw new Error(data.error || 'Khoá đặt hàng đã dùng cho dữ liệu khác — đã làm mới, vui lòng gửi lại.');
+    }
     if (!resp.ok || data.success === false) throw new Error(data.error || `Đặt hàng thất bại (HTTP ${resp.status}).`);
 
     const orderId = data.orderId || 'BU-' + Date.now();
@@ -3600,6 +5515,7 @@ async function submitOrder() {
       showToast(msg, 'error', 7000);
     }
   } finally {
+    orderSubmitting = false;
     submitBtn.disabled = false;
     if (submitBtn.innerHTML === 'Đang xử lý…') submitBtn.innerHTML = originalBtnHtml;
     submitBtn.classList.remove('is-loading');
@@ -3804,6 +5720,7 @@ async function loadCommunityDesigns() {
     const pick = () => {
       if (!wrap.dataset.url) { showToast('Mẫu này thiếu ảnh xem trước.', 'warning'); return; }
       state.currentDesign = { success: true, designId: 'community-' + Date.now(), designUrl: wrap.dataset.url, frontDesignUrl: wrap.dataset.url, backDesignUrl: wrap.dataset.back, prompt: wrap.dataset.prompt, style: wrap.dataset.style, author: wrap.dataset.author };
+      state.savedDesignId = null; state.savedDesignName = null; updateSavedBadge(); // remix community = identity mới
       // Additive like every other source: community picks join the layers.
       showDesignOnMockup(wrap.dataset.url, null, null, undefined, { name: String(wrap.dataset.prompt || 'Cộng đồng').slice(0, 24), designId: state.currentDesign.designId, prompt: wrap.dataset.prompt, style: wrap.dataset.style });
       const pi = document.getElementById('promptInput');
@@ -4063,6 +5980,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initGenerateButtons();
   initPrintControls();
   initPrintPresets();
+  initCropMode();
   initPrintPreview();
   initBackDesignControls();
   initInteractionMode();
@@ -4073,6 +5991,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initViewToggle();
   initThreeViewer();
   initHistory();
+  initSavedDesigns();
   initOnboarding();
   loadCommunityDesigns();
   updatePrice();
