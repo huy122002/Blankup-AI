@@ -11,7 +11,7 @@
   <meta name="description" content="Tạo thiết kế áo thun độc nhất với AI. Viết prompt hoặc upload ảnh để AI thiết kế cho bạn.">
     <link rel="stylesheet" href="css/tokens.css?v=v5">
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/studio.css?v=v59">
+  <link rel="stylesheet" href="css/studio.css?v=v22">
   <link rel="stylesheet" href="css/pro.css?v=v2">
 </head>
 <body class="bk-grain">
@@ -254,19 +254,6 @@
             <!-- Loaded from localStorage -->
           </div>
         </div>
-
-        <!-- SAVED DESIGNS (PHASE 4 — server-persisted, fully editable) -->
-        <div class="panel-history panel-saved" id="panelSaved">
-          <div class="panel-history-header" id="savedToggle">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            <span>Thiết kế đã lưu</span>
-            <span class="saved-badge" id="savedBadge" hidden></span>
-            <svg class="history-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
-          </div>
-          <div class="panel-history-list saved-designs-list" id="savedDesignsList">
-            <!-- Loaded from /api/ai-design/saved -->
-          </div>
-        </div>
       </aside>
 
       <!-- ===== CENTER: Canvas ===== -->
@@ -320,12 +307,6 @@
             </button>
           </div>
           <div class="canvas-controls-right">
-            <button class="canvas-ctrl-btn" id="undoDesignBtn" title="Hoàn tác (Ctrl+Z)" aria-label="Hoàn tác" disabled>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-            </button>
-            <button class="canvas-ctrl-btn" id="redoDesignBtn" title="Làm lại (Ctrl+Shift+Z / Ctrl+Y)" aria-label="Làm lại" disabled>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 0 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
-            </button>
             <button class="canvas-ctrl-btn" id="removeWhiteBgBtn" title="Xóa nền trắng khỏi thiết kế">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z"/></svg>
             </button>
@@ -371,14 +352,6 @@
             <div class="placement-panel-header">
               <span>Mẫu trên áo · <em class="placement-side-tag" id="layerCountTag"></em></span>
             </div>
-            <!-- Quick actions trên layer đang chọn -->
-            <div class="layer-quick-actions" id="layerQuickActions">
-              <button type="button" class="layer-qa-btn" id="qaCrop" title="Cắt/tỉa ảnh không phá hủy — nhập Crop Mode">✂ Cắt</button>
-              <button type="button" class="layer-qa-btn" id="qaDuplicate" title="Nhân bản mẫu đang chọn (Ctrl+D)">⧉ Nhân bản</button>
-              <button type="button" class="layer-qa-btn" id="qaLock" title="Khóa chống sửa/xóa nhầm">🔒 Khóa</button>
-              <button type="button" class="layer-qa-btn" id="qaReset" title="Reset vị trí + xoay">⟲ Reset</button>
-              <button type="button" class="layer-qa-btn layer-qa-danger" id="qaDelete" title="Xóa mẫu (Delete)">✕ Xóa</button>
-            </div>
             <!-- Căn chỉnh pro: chỉ hiện khi có ≥2 mẫu -->
             <div class="align-tools" id="alignTools" style="display:none;">
               <button type="button" class="align-tool-btn" id="distributeH" title="Phân bố đều ngang">⇤···⇥</button>
@@ -418,46 +391,10 @@
               </div>
               <input type="range" id="printRotation" min="0" max="360" value="0" aria-label="Góc xoay mẫu in">
             </div>
-            <div class="placement-slider-group">
-              <div class="placement-slider-top">
-                <label for="layerOpacity">Độ mờ</label>
-                <output class="slider-value" id="layerOpacityValue" for="layerOpacity">100%</output>
-              </div>
-              <input type="range" id="layerOpacity" min="5" max="100" value="100" aria-label="Độ mờ mẫu in (phần trăm)">
-            </div>
-          </div>
-          <!-- Cắt tinh chỉnh (crop) không phá hủy — giữ nguyên asset gốc -->
-          <div class="placement-sliders" id="cropControls" style="margin-top:4px;">
-            <div class="crop-toolbar" id="cropToolbar" hidden>
-              <span class="crop-mode-tag">CROP MODE</span>
-              <button type="button" class="crop-tb-btn crop-tb-apply" id="cropApplyBtn" title="Áp dụng vùng cắt (Enter)">✓ Áp dụng</button>
-              <button type="button" class="crop-tb-btn crop-tb-cancel" id="cropCancelBtn" title="Bỏ thay đổi, quay lại Crop trước đó (Esc)">✕ Hủy</button>
-              <button type="button" class="crop-tb-btn" id="cropResetBtn2" title="Xóa vùng cắt — dùng toàn bộ ảnh gốc">↺ Xóa cắt</button>
-            </div>
-            <div class="crop-toolbar-hint" id="cropToolbarHint" hidden>Kéo góc khung để định vùng giữ · Kéo trong khung để dịch ảnh (reframe)</div>
-            <div class="placement-slider-group">
-              <div class="placement-slider-top">
-                <label for="layerCropW">Cắt ngang</label>
-                <output class="slider-value" id="layerCropWValue" for="layerCropW">100%</output>
-              </div>
-              <input type="range" id="layerCropW" min="20" max="100" value="100" aria-label="Bề rộng vùng cắt (phần trăm ảnh gốc)">
-            </div>
-            <div class="placement-slider-group">
-              <div class="placement-slider-top">
-                <label for="layerCropH">Cắt dọc</label>
-                <output class="slider-value" id="layerCropHValue" for="layerCropH">100%</output>
-              </div>
-              <input type="range" id="layerCropH" min="20" max="100" value="100" aria-label="Bề cao vùng cắt (phần trăm ảnh gốc)">
-            </div>
-            <div class="crop-reset-row">
-              <button type="button" class="crop-reset-btn" id="cropResetBtn" title="Khôi phục toàn bộ ảnh gốc">↺ Bỏ cắt</button>
-              <span class="crop-hint">Cắt tinh chỉnh: giữ bản gốc — chỉnh lại được mọi lúc</span>
-            </div>
           </div>
           <div class="placement-panel-header" style="margin-top:8px;">
             <span>Vị trí chữ</span>
             <span class="align-quick">
-              <button type="button" class="align-btn group-move-toggle" id="groupMoveToggle" title="Di chuyển ảnh + chữ cùng lúc khi kéo trên áo" aria-pressed="false">⛓ Kéo chung</button>
               <button type="button" class="align-btn" id="textCenterH" title="Căn giữa ngang">⇔</button>
               <button type="button" class="align-btn" id="textCenterV" title="Căn giữa dọc">⇕</button>
             </span>
@@ -468,14 +405,14 @@
                 <label for="textPosX">Ngang (X)</label>
                 <output class="slider-value" id="textPosXValue" for="textPosX">0</output>
               </div>
-              <input type="range" class="center-origin" id="textPosX" min="-48" max="48" value="0" aria-label="Vị trí ngang của chữ">
+              <input type="range" class="center-origin" id="textPosX" min="-80" max="80" value="0" aria-label="Vị trí ngang của chữ">
             </div>
             <div class="placement-slider-group">
               <div class="placement-slider-top">
                 <label for="textPosY">Dọc (Y)</label>
                 <output class="slider-value" id="textPosYValue" for="textPosY">18</output>
               </div>
-              <input type="range" class="center-origin" id="textPosY" min="-48" max="45" value="18" aria-label="Vị trí dọc của chữ">
+              <input type="range" class="center-origin" id="textPosY" min="-75" max="45" value="18" aria-label="Vị trí dọc của chữ">
             </div>
             <div class="placement-slider-group">
               <div class="placement-slider-top">
@@ -543,12 +480,6 @@
               <button type="button" class="text-color-dot" data-color="#f59e0b" style="background:#f59e0b" title="Cam" aria-label="Màu cam"></button>
               <button type="button" class="text-color-dot" data-color="#ec4899" style="background:#ec4899" title="Hồng" aria-label="Màu hồng"></button>
             </div>
-          </div>
-          <div class="text-rot-lock-row">
-            <label class="text-style-label" for="textRotate">Xoay</label>
-            <input type="range" class="text-rot-slider" id="textRotate" min="0" max="359" value="0" aria-label="Góc xoay chữ">
-            <output class="slider-value" id="textRotateValue" for="textRotate">0°</output>
-            <button type="button" class="text-lock-btn" id="textLockBtn" title="Khóa chống di chuyển/xóa chữ" aria-pressed="false">🔒</button>
           </div>
           <div class="placement-panel-header" style="margin-top:8px;">
             <span>Chi tiết tùy ý · <em class="placement-side-tag" id="stickerSideTag">mặt trước</em></span>
@@ -660,14 +591,6 @@
           <button class="action-btn magnetic" id="shareDesignBtn" disabled aria-describedby="actionsHint" title="Tạo design để mở khóa Chia sẻ">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
             <span>Chia sẻ</span>
-          </button>
-          <button class="action-btn action-btn-save" id="saveDesignBtn" title="Lưu thiết kế vào tài khoản — mở lại chỉnh sửa mọi lúc">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            <span>Lưu thiết kế</span>
-          </button>
-          <button class="action-btn" id="saveAsNewBtn" title="Lưu thành bản mới (không ghi đè bản hiện tại)">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
-            <span>Lưu thành bản mới</span>
           </button>
           <p class="actions-hint" id="actionsHint">Tạo design để mở khóa Đặt hàng · Tải · Preview · Chia sẻ</p>
         </div>
@@ -937,9 +860,9 @@
   <script type="importmap">
     {"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}
   </script>
-  <script type="module" src="js/tshirt-360.js?v=30"></script>
+  <script type="module" src="js/tshirt-360.js?v=25"></script>
   <script src="js/motion.js?v=v5"></script>
   <script src="js/pro.js?v=v2" defer></script>
-  <script src="js/studio.js?v=v59"></script>
+  <script src="js/studio.js?v=v24"></script>
 </body>
 </html>
