@@ -6,6 +6,7 @@
 
 const API_ADMIN = window.location.origin + '/api/admin';
 const API_ORDERS = window.location.origin + '/api/orders';
+const API_REVIEWS = window.location.origin + '/api/reviews';
 
 const adminState = {
   stats: null,
@@ -15,6 +16,9 @@ const adminState = {
   vouchers: [],
   plans: [],
   credits: [],
+  reviews: [],
+  reviewFilter: 'all',
+  reviewSearch: '',
   currentTab: 'overview',
   orderFilter: 'all',
   paymentFilter: 'all',
@@ -62,6 +66,7 @@ function setBusyBtn(btn, busy, text) {
 const STATUS_META = {
   pending: { label: () => t('admin.filter.pending', 'Đang xử lý'), cls: 'badge-pending' },
   awaiting_payment: { label: () => t('admin.filter.awaitingPayment', 'Chờ thanh toán'), cls: 'badge-awaiting-payment' },
+  paid: { label: () => t('admin.filter.paidOrder', 'Đã thanh toán'), cls: 'badge-paid' },
   processing: { label: () => t('admin.filter.processing', 'Đang sản xuất'), cls: 'badge-processing' },
   shipped: { label: () => t('admin.filter.shipped', 'Đã gửi hàng'), cls: 'badge-shipped' },
   delivered: { label: () => t('admin.filter.delivered', 'Đã giao hàng'), cls: 'badge-delivered' },
@@ -87,6 +92,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initTabs();
   initOrderFilters();
   initOrderTools();
+  initReviewTools();
   initDesignFilters();
   initUserTools();
   initColorDotPreview();
@@ -101,6 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initCreditTools();
   initReportTools();
   loadDashboardData();
+  startOrdersRealtime();
 });
 
 async function loadDashboardData() {
@@ -185,6 +192,9 @@ function switchTab(tabName) {
   document.querySelector('.admin-workspace')?.scrollIntoView({ block: 'start', behavior: 'auto' });
   if (tabName === 'reports' && (!adminState.reportData || adminState.reportData.length === 0)) {
     loadReports();
+  }
+  if (tabName === 'reviews') {
+    loadAdminReviews();
   }
 }
 
@@ -701,6 +711,212 @@ function initReportTools() {
   });
 }
 
+/* ============================================================
+   CUSTOMER REVIEWS — feedback tied to real orders
+   Listed in the “Đánh giá” tab; visible ones power the homepage
+   “Cộng đồng nói gì” section. Admin can hide/unhide or delete.
+   ============================================================ */
+function renderStarsHtml(rating) {
+  const n = Math.min(5, Math.max(0, Math.floor(Number(rating) || 0)));
+  return `<span class="review-stars" aria-label="${n}/5 sao">${'★'.repeat(n)}${'☆'.repeat(5 - n)}</span>`;
+}
+
+async function loadAdminReviews() {
+  const tbody = document.getElementById('reviewsTableBody');
+  if (!tbody) return;
+  try {
+    const resp = await fetch(`${API_REVIEWS}`, { headers: auth.getAuthHeaders() });
+    const result = await resp.json();
+    if (!resp.ok || result.success === false) throw new Error(result.error || 'Không thể tải đánh giá.');
+    adminState.reviews = result.data || [];
+    const stats = result.stats || {};
+
+    const avgEl = document.getElementById('review-stat-avg');
+    const totalEl = document.getElementById('review-stat-total');
+    const visibleEl = document.getElementById('review-stat-visible');
+    if (avgEl) avgEl.textContent = stats.total ? `${stats.averageRating}/5` : '—';
+    if (totalEl) totalEl.textContent = String(stats.total ?? 0);
+    if (visibleEl) visibleEl.textContent = `${stats.visible ?? 0}/${stats.total ?? 0}`;
+
+    renderAdminReviews();
+  } catch (err) {
+    tbody.innerHTML = `<tr><td colspan="7" class="orders-result-count">${escapeHtml(err.message || 'Không thể tải đánh giá.')}</td></tr>`;
+  }
+}
+
+function filteredAdminReviews() {
+  const f = adminState.reviewFilter || 'all';
+  const q = (adminState.reviewSearch || '').trim().toLowerCase();
+  return adminState.reviews.filter((r) => {
+    if (f === 'visible' && r.status !== 'visible') return false;
+    if (f === 'hidden' && r.status !== 'hidden') return false;
+    if (f === 'noreply' && r.reply && r.reply.text) return false;
+    if (f === 'low' && (Number(r.rating) || 0) > 2) return false;
+    if (/^[1-5]$/.test(f) && (Number(r.rating) || 0) !== Number(f)) return false;
+    if (q) {
+      const haystack = [r.orderId, r.authorName, r.comment, r.reply && r.reply.text].join(' ').toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderAdminReviews() {
+  const tbody = document.getElementById('reviewsTableBody');
+  if (!tbody) return;
+  const reviews = filteredAdminReviews();
+  const countEl = document.getElementById('reviewsResultCount');
+  if (countEl) countEl.textContent = `${reviews.length} đánh giá`;
+
+  if (!adminState.reviews.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="orders-result-count">Chưa có đánh giá nào từ khách hàng.</td></tr>';
+    return;
+  }
+  if (!reviews.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="orders-result-count">Không có đánh giá nào khớp bộ lọc.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = reviews.map((r) => {
+    const visible = r.status === 'visible';
+    const rawComment = String(r.comment || '').trim();
+    const replyText = r.reply && r.reply.text ? String(r.reply.text) : '';
+    return `<tr data-review-id="${escapeAttr(r.id)}">
+      <td>${renderStarsHtml(r.rating)}</td>
+      <td><div class="order-code">${escapeHtml(r.orderId || '—')}</div></td>
+      <td><div class="table-primary">${escapeHtml(r.authorName || 'Khách hàng')}</div>${r.productType ? `<div class="row-muted">${escapeHtml(getProductName(r.productType))}</div>` : ''}</td>
+      <td style="max-width:360px;">
+        <div class="row-muted" style="white-space:normal;">${rawComment ? escapeHtml(rawComment) : '<em>Chỉ chấm sao</em>'}</div>
+        ${replyText ? `<div class="admin-review-reply"><span class="admin-review-reply-mark">B</span> ${escapeHtml(replyText)}</div>` : ''}
+      </td>
+      <td><span class="badge ${visible ? 'badge-completed' : 'badge-muted'}">${visible ? 'Đang hiển thị' : 'Đã ẩn'}</span></td>
+      <td><div class="table-primary">${formatDate(r.createdAt, false)}</div></td>
+      <td>
+        <div class="action-buttons review-actions">
+          <button class="review-action-link" data-review-action="reply" data-id="${escapeAttr(r.id)}" title="${replyText ? 'Sửa phản hồi của shop' : 'Phản hồi với tư cách shop'}">${replyText ? 'Sửa' : 'Trả lời'}</button>
+          <button class="review-action-link" data-review-action="toggle" data-id="${escapeAttr(r.id)}" data-visible="${visible ? '1' : '0'}" title="${visible ? 'Ẩn khỏi trang chủ' : 'Hiện lại trên trang chủ'}">${visible ? 'Ẩn' : 'Hiện'}</button>
+          <button class="review-action-link review-action-danger" data-review-action="delete" data-id="${escapeAttr(r.id)}" title="Xóa đánh giá">Xóa</button>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function initReviewReplyModal() {
+  const modal = document.getElementById('reviewReplyModal');
+  if (!modal || modal.dataset.bound === '1') return;
+  modal.dataset.bound = '1';
+  const close = () => { modal.style.display = 'none'; };
+  document.getElementById('reviewReplyClose')?.addEventListener('click', close);
+  document.getElementById('reviewReplyCancel')?.addEventListener('click', close);
+  modal.addEventListener('click', (e) => { if (e.target === modal) close(); });
+  const ta = document.getElementById('reviewReplyText');
+  ta?.addEventListener('input', () => {
+    const count = document.getElementById('reviewReplyCount');
+    if (count) count.textContent = `${ta.value.length}/600`;
+  });
+  document.getElementById('reviewReplySave')?.addEventListener('click', async () => {
+    if (!adminState.replyReviewId) return;
+    const btn = document.getElementById('reviewReplySave');
+    const err = document.getElementById('reviewReplyError');
+    if (err) err.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Đang lưu...';
+    try {
+      const resp = await fetch(`${API_REVIEWS}/${encodeURIComponent(adminState.replyReviewId)}/reply`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...auth.getAuthHeaders() },
+        body: JSON.stringify({ reply: (ta?.value || '').trim() }),
+      });
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok || result.success === false) throw new Error(result.error || 'Không thể lưu phản hồi.');
+      showAdminToast(result.message || 'Đã lưu phản hồi.', 'success');
+      close();
+      await loadAdminReviews();
+    } catch (e2) {
+      if (err) { err.textContent = e2.message || 'Không thể lưu phản hồi.'; err.style.display = 'block'; }
+    } finally {
+      btn.disabled = false; btn.textContent = 'Lưu phản hồi';
+    }
+  });
+}
+
+function openReviewReplyModal(reviewId) {
+  const review = (adminState.reviews || []).find(r => r.id === reviewId);
+  if (!review) return;
+  adminState.replyReviewId = reviewId;
+  const modal = document.getElementById('reviewReplyModal');
+  const meta = document.getElementById('reviewReplyMeta');
+  const ta = document.getElementById('reviewReplyText');
+  const err = document.getElementById('reviewReplyError');
+  const count = document.getElementById('reviewReplyCount');
+  if (meta) {
+    meta.textContent = `#${review.orderId || ''} · ${review.authorName || 'Khách hàng'} · ${'★'.repeat(Number(review.rating) || 0)}${'☆'.repeat(5 - (Number(review.rating) || 0))} — "${String(review.comment || 'Chỉ chấm sao').slice(0, 80)}"`;
+  }
+  if (ta) ta.value = (review.reply && review.reply.text) || '';
+  if (count) count.textContent = `${ta ? ta.value.length : 0}/600`;
+  if (err) err.style.display = 'none';
+  modal.style.display = 'flex';
+  setTimeout(() => ta?.focus(), 50);
+}
+
+function initReviewTools() {
+  document.getElementById('reviewsRefreshBtn')?.addEventListener('click', () => loadAdminReviews());
+
+  // Filter pills + search cho tab Đánh giá.
+  document.querySelectorAll('.review-filter-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      document.querySelectorAll('.review-filter-pill').forEach(p => p.classList.remove('active'));
+      pill.classList.add('active');
+      adminState.reviewFilter = pill.dataset.reviewFilter || 'all';
+      renderAdminReviews();
+    });
+  });
+  document.getElementById('reviewSearchInput')?.addEventListener('input', (e) => {
+    adminState.reviewSearch = e.target.value;
+    renderAdminReviews();
+  });
+
+  initReviewReplyModal();
+
+  document.getElementById('reviewsTableBody')?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-review-action]');
+    if (!btn) return;
+    const id = btn.dataset.id;
+    const action = btn.dataset.reviewAction;
+    if (action === 'reply') { openReviewReplyModal(id); return; }
+    if (busyGuard(`review-${action}-${id}`)) return;
+    btn.disabled = true;
+    try {
+      if (action === 'toggle') {
+        const visible = btn.dataset.visible !== '1';
+        const resp = await fetch(`${API_REVIEWS}/${encodeURIComponent(id)}/visibility`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...auth.getAuthHeaders() },
+          body: JSON.stringify({ visible }),
+        });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || result.success === false) throw new Error(result.error || 'Không thể cập nhật.');
+        showAdminToast(result.message || 'Đã cập nhật.', 'success');
+        await loadAdminReviews();
+      } else if (action === 'delete') {
+        if (!confirm('Xóa vĩnh viễn đánh giá này?')) return;
+        const resp = await fetch(`${API_REVIEWS}/${encodeURIComponent(id)}`, { method: 'DELETE', headers: auth.getAuthHeaders() });
+        const result = await resp.json().catch(() => ({}));
+        if (!resp.ok || result.success === false) throw new Error(result.error || 'Không thể xóa.');
+        showAdminToast('Đã xóa đánh giá.', 'success');
+        await loadAdminReviews();
+      }
+    } catch (err) {
+      showAdminToast(err.message || 'Thao tác thất bại.', 'error');
+      btn.disabled = false;
+    } finally {
+      // Luôn nhả khóa busy — nếu không lần thao tác kế tiếp trên cùng đánh giá
+      // sẽ bị busyGuard chặn vĩnh viễn (bug từng gặp khi test ẩn/hiện).
+      busyRelease(`review-${action}-${id}`);
+    }
+  });
+}
+
 async function loadReports() {
   const period = document.getElementById('reportPeriodSelect')?.value || adminState.reportPeriod || 'month';
   const yearVal = document.getElementById('reportYearSelect')?.value;
@@ -1081,6 +1297,13 @@ function renderOverview() {
   setText('stat-paid-orders', paymentStats.paid);
   setText('stat-awaiting-payment', paymentStats.awaiting);
 
+  // KPI đánh giá — SỐ THẬT từ reviews store (stat thật, không phải số bừa).
+  const rs = stats.reviews || adminState.reviewSummary;
+  const rsAvgEl = document.getElementById('stat-reviews-avg');
+  const rsTotalEl = document.getElementById('stat-reviews-total');
+  if (rsAvgEl) rsAvgEl.textContent = rs && rs.total ? `${rs.averageRating}/5` : '—';
+  if (rsTotalEl) rsTotalEl.textContent = rs ? `${rs.total} đánh giá${rs.unreplied ? ` · ${rs.unreplied} chưa phản hồi` : ''}` : '0 đánh giá';
+
   setText('summary-completed', stats.completedCount);
   setText('summary-pending', stats.pendingCount);
   setText('summary-cancelled', stats.cancelledCount);
@@ -1213,6 +1436,75 @@ function renderOrdersList() {
     ? filteredOrders.map(order => renderOrderRow(order)).join('')
     : renderEmptyRow(8, t('admin.empty.orderFilter', 'Không có đơn hàng nào khớp bộ lọc.'));
   bindRowActions(tbody);
+  lastOrdersSignature = ordersRenderSignature();
+}
+
+/* ============================================================
+   REALTIME ORDERS
+   The admin board follows every order change (SePay confirmation, a new order,
+   another admin's edit) without a manual reload: SSE push with a 10s poll as a
+   safety net. Re-rendering is skipped while a modal is open so an in-flight
+   edit is never yanked away, and skipped when nothing actually changed so the
+   table does not flicker under the cursor.
+   ============================================================ */
+let ordersStreamHandle = null;
+let ordersPollTimer = null;
+let lastOrdersSignature = '';
+
+function ordersRenderSignature() {
+  return (adminState.orders || [])
+    .map(o => [o.orderId, o.status, o.paymentStatus || '', o.paidAt || '', o.updatedAt || ''].join(':'))
+    .join('|');
+}
+
+function isAdminModalOpen() {
+  return Boolean(document.querySelector('.modal-overlay.open'));
+}
+
+function renderOrdersIfChanged(force) {
+  const signature = ordersRenderSignature();
+  if (!force && signature === lastOrdersSignature) return;
+  renderOrdersList();
+}
+
+async function refreshOrdersOnly() {
+  if (isAdminModalOpen()) return; // never disturb an open editor
+  try {
+    const resp = await fetch(API_ORDERS, { headers: auth.getAuthHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data && data.success !== false && Array.isArray(data.data)) {
+      adminState.orders = data.data;
+      renderOrdersIfChanged(false);
+    }
+  } catch (err) { /* transient — the poll retries */ }
+}
+
+function mergeOrderEvent(event) {
+  if (!event || !event.orderId) return;
+  const orders = adminState.orders || [];
+  const idx = orders.findIndex(o => o.orderId === event.orderId);
+  if (idx === -1) { refreshOrdersOnly(); return; } // brand new order → refetch
+  orders[idx] = Object.assign({}, orders[idx], {
+    status: event.status,
+    paymentStatus: event.paymentStatus,
+    paidAt: event.paidAt,
+    updatedAt: event.updatedAt,
+  });
+  renderOrdersIfChanged(false);
+}
+
+function startOrdersRealtime() {
+  if (ordersStreamHandle) return;
+  if (typeof window.watchOrderStream === 'function') {
+    ordersStreamHandle = window.watchOrderStream({ onEvent: mergeOrderEvent });
+  }
+  if (ordersPollTimer) return;
+  ordersPollTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (adminState.currentTab !== 'orders' && adminState.currentTab !== 'overview') return;
+    refreshOrdersOnly();
+  }, 10000);
 }
 
 function getFilteredOrders() {
@@ -1252,6 +1544,10 @@ function renderOrderRow(order, compact = false) {
     : '';
   const cancelActionHtml = order.status === 'pending'
     ? `<button class="btn-icon btn-cancel-action" data-action="cancel" data-id="${escapeAttr(order.orderId)}" title="${escapeAttr(t('admin.actions.cancel', 'Hủy đơn'))}">×</button>`
+    : '';
+  // Đã thanh toán (paid) chưa sản xuất — admin bấm để bắt đầu sản xuất.
+  const startProductionActionHtml = order.status === 'paid'
+    ? `<button class="btn-icon btn-start-action" data-action="start-production" data-id="${escapeAttr(order.orderId)}" title="${escapeAttr(t('admin.actions.startProduction', 'Bắt đầu sản xuất'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg></button>`
     : '';
   const shipActionHtml = order.status === 'processing'
     ? `<button class="btn-icon btn-ship-action" data-action="ship" data-id="${escapeAttr(order.orderId)}" title="${escapeAttr(t('admin.actions.ship2', 'Chuyển sang đã gửi hàng'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.62l-3.48-4.35a1 1 0 0 0-.78-.38H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/></svg></button>`
@@ -1300,6 +1596,7 @@ function renderOrderRow(order, compact = false) {
           <button class="btn-icon btn-view-action" data-action="preview" data-id="${escapeAttr(order.orderId)}" title="${escapeAttr(t('admin.actions.preview', 'Xem chi tiết'))}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg></button>
           ${copyActionHtml}
           ${markPaidActionHtml}
+          ${startProductionActionHtml}
           ${shipActionHtml}
           ${deliverActionHtml}
           ${completeActionHtml}
@@ -1327,6 +1624,7 @@ function bindRowActions(container) {
       btn.disabled = true;
       try {
         if (action === 'complete') await updateOrderStatus(orderId, 'completed');
+        if (action === 'start-production') await updateOrderStatus(orderId, 'processing');
         if (action === 'ship') await updateOrderStatus(orderId, 'shipped');
         if (action === 'deliver') await updateOrderStatus(orderId, 'delivered');
         if (action === 'mark-paid') await markOrderPaid(orderId);
@@ -1629,6 +1927,10 @@ function openPreviewModal(orderId) {
   document.querySelectorAll('.admin-color-dot').forEach(dot => {
     dot.classList.toggle('active', dot.dataset.color === adminState.previewShirtColor);
   });
+  // 3D mặc định khi mở đơn — mount viewer vào đơn này (lazy import GLB lần đầu).
+  const note = document.getElementById('admin3dNote');
+  if (note) note.hidden = true;
+  setAdminPreviewView('3d');
   document.getElementById('designPreviewModal')?.classList.add('open');
 }
 
@@ -1651,13 +1953,16 @@ function syncAdminPreviewSideButtons() {
     btn.classList.toggle('active', side === adminState.previewSide);
     btn.disabled = side === 'back' && !hasBack;
   });
+  // 3D viewer quay camera tới đúng mặt đang chọn (giống Studio).
+  if (admin3d.booted) {
+    try { window.tshirt360Viewer?.showSide(adminState.previewSide || 'front'); } catch { /* viewer chưa sẵn sàng */ }
+  }
 }
 
 function renderAdminPreviewDesign() {
   const order = adminState.selectedPreviewOrder;
   const designUrl = getOrderDesignUrl(order, adminState.previewSide);
   const overlay = document.getElementById('mockupDesignAdmin');
-  const dlLink = document.getElementById('downloadSvgLink');
 
   if (overlay) {
     overlay.innerHTML = designUrl
@@ -1665,13 +1970,161 @@ function renderAdminPreviewDesign() {
       : `<span class="row-muted">${escapeHtml(t('admin.noDesign', 'Không có thiết kế'))}</span>`;
   }
 
-  if (dlLink) {
-    dlLink.style.display = designUrl ? 'inline-flex' : 'none';
-    if (designUrl) {
-      dlLink.href = designUrl;
-      dlLink.download = `blankup-${order?.orderId || 'order'}-${adminState.previewSide}.png`;
+  updateAdminPrintDownloads();
+}
+
+/* ---- ADMIN 3D PREVIEW — nhìn áo của khách bằng model 3D thật ----
+   Tái sử dụng NGUYÊN VÊN viewer 3D của Studio (tshirt-360.js): GLB thật,
+   decal thật từ composite đã in, xoay/zoom bằng OrbitControls. Viewer studio
+   cũng dùng tshirt360Viewer làm facade nên không thể mount 2 instance bằng
+   window object — import một instance riêng cho admin qua dynamic import,
+   chỉ khi modal mở đơn ĐẦU TIÊN (lazy: admin không carga 3D nếu không mở đơn).
+   THỜI GIAN: GLB tải 1 lần duy nhất; đóng/mở modal chỉ chuyển setProduct +
+   applyDesigns (model nằm trong bounded cache của viewer). */
+const admin3d = {
+  viewerPromise: null,
+  booted: false,
+  productType: null,
+  appliedUrls: { front: null, back: null },
+};
+
+function adminOrderDesignUrls(order) {
+  return {
+    front: (order && (order.frontDesignUrl || order.designUrl)) || null,
+    back: (order && order.backDesignUrl) || null,
+  };
+}
+
+function mapAdminProductType(raw) {
+  const v = String(raw || '').trim().toLowerCase();
+  // 'oversize' dùng chung model t-shirt (cut rộng hơn nhưng surface in giống).
+  if (v === 'oversize') return 'tshirt';
+  return v;
+}
+
+async function ensureAdmin3dViewer() {
+  if (admin3d.viewerPromise) return admin3d.viewerPromise;
+  admin3d.viewerPromise = import('/js/tshirt-360.js')
+    .then((mod) => {
+      const v = window.tshirt360Viewer;
+      if (!v) throw new Error('3D viewer module loaded but facade missing');
+      return v;
+    })
+    .catch((err) => {
+      admin3d.viewerPromise = null; // cho phép retry lần mở sau
+      throw err;
+    });
+  return admin3d.viewerPromise;
+}
+
+/* Boot 3D cho đơn đang mở: đúng loại áo + đúng màu + đúng thiết kế front/back. */
+async function bootAdmin3d(order) {
+  const container = document.getElementById('admin3dContainer');
+  const note = document.getElementById('admin3dNote');
+  if (!container) return false;
+  const productType = mapAdminProductType(order.productType);
+  const urls = adminOrderDesignUrls(order);
+
+  // Điều kiện đã boot đúng sản phẩm + đúng thiết kế (đơn khác → re-apply)
+  const sameContext = admin3d.booted
+    && admin3d.productType === productType
+    && admin3d.appliedUrls.front === urls.front
+    && admin3d.appliedUrls.back === urls.back;
+
+  try {
+    const viewer = await ensureAdmin3dViewer();
+    if (!admin3d.booted) {
+      viewer.setColor(order.color || '#ffffff');
+      admin3d.booted = true;
     }
+    if (!sameContext) {
+      viewer.setProduct(productType);
+      const state = viewer.getProductState();
+      if (state.available3D === false) {
+        // Không có GLB thật cho loại áo này (vd polo): báo rõ, không fake.
+        if (note) {
+          note.hidden = false;
+          note.textContent = `Mẫu 3D cho ${order.productType || 'sản phẩm'} chưa có — hãy dùng chế độ 2D ở trên để xem bản in.`;
+        }
+        admin3d.productType = productType;
+        admin3d.appliedUrls = urls;
+        return false;
+      }
+      if (note) note.hidden = true;
+      viewer.setDesigns(urls);
+      admin3d.productType = productType;
+      admin3d.appliedUrls = urls;
+    }
+    viewer.setColor(order.color || '#ffffff');
+    viewer.resize();
+    viewer.showSide(adminState.previewSide || 'front');
+    return true;
+  } catch (err) {
+    console.warn('[Admin3D] viewer boot failed:', err);
+    if (note) {
+      note.hidden = false;
+      note.textContent = 'Không tải được mẫu 3D — chuyển sang chế độ 2D để xem bản in.';
+    }
+    // Lỗi 3D → tự rơi về 2D cho admin không bị treo màn hình trống.
+    setAdminPreviewView('2d');
+    return false;
   }
+}
+
+/* Đóng modal: chỉ ẩn, KHÔNG hủy viewer (GLB cache giữ nguyên cho lần mở sau). */
+function hideAdmin3d() {
+  const container = document.getElementById('admin3dContainer');
+  if (container) container.style.display = 'none';
+}
+
+function setAdminPreviewView(view) {
+  const want3d = view !== '2d';
+  const container = document.getElementById('admin3dContainer');
+  const mockup = document.getElementById('mockupContainerAdmin');
+  document.querySelectorAll('.admin-view-btn').forEach((b) => {
+    b.classList.toggle('active', (b.dataset.view === '3d') === want3d);
+  });
+  if (container) container.style.display = want3d ? '' : 'none';
+  if (mockup) mockup.style.display = want3d ? 'none' : '';
+  if (want3d) {
+    const order = adminState.selectedPreviewOrder;
+    if (order) bootAdmin3d(order);
+  }
+}
+
+function initAdminViewToggle() {
+  document.querySelectorAll('.admin-view-btn').forEach((btn) => {
+    btn.addEventListener('click', () => setAdminPreviewView(btn.dataset.view));
+  });
+}
+
+/* ---- DOWNLOAD BẢN IN — composite đúng mặt, đúng tên file đơn ---- */
+function updateAdminPrintDownloads() {
+  const order = adminState.selectedPreviewOrder;
+  const front = (order && (order.frontDesignUrl || order.designUrl)) || '';
+  const back = (order && order.backDesignUrl) || '';
+  const id = order?.orderId || 'order';
+  const ext = (url) => {
+    if (String(url).startsWith('data:image/svg')) return 'svg';
+    if (String(url).startsWith('data:image/png')) return 'png';
+    if (String(url).startsWith('data:image/jpeg')) return 'jpg';
+    if (String(url).startsWith('data:image/webp')) return 'webp';
+    const m = String(url).split('?')[0].match(/\.(png|jpe?g|webp|svg|gif)$/i);
+    return m ? m[1].toLowerCase() : 'png';
+  };
+  const setLink = (el, url, side) => {
+    if (!el) return;
+    if (!url) {
+      el.hidden = true;
+      el.removeAttribute('href');
+      return;
+    }
+    el.hidden = false;
+    el.href = url;
+    el.download = `blankup-${id}-${side}.${ext(url)}`;
+  };
+  setLink(document.getElementById('dlFrontLink'), front, 'front');
+  setLink(document.getElementById('dlBackLink'), back, 'back');
 }
 
 function getOrderDesignUrl(order, side = adminState.previewSide) {
@@ -1688,24 +2141,57 @@ function initColorDotPreview() {
       document.querySelectorAll('.admin-color-dot').forEach(item => item.classList.remove('active'));
       dot.classList.add('active');
       updateAdminMockupColor();
+      // Đổi màu áo trên model 3D thật (nếu viewer đã boot).
+      if (admin3d.booted) {
+        try { window.tshirt360Viewer?.setColor(adminState.previewShirtColor); } catch { /* viewer chưa sẵn sàng */ }
+      }
     });
   });
 }
 
 function initPreviewModalClose() {
   const modal = document.getElementById('designPreviewModal');
-  document.getElementById('previewModalClose')?.addEventListener('click', () => modal?.classList.remove('open'));
+  document.getElementById('previewModalClose')?.addEventListener('click', () => { modal?.classList.remove('open'); hideAdmin3d(); });
   modal?.addEventListener('click', (event) => {
-    if (event.target === modal) modal.classList.remove('open');
+    if (event.target === modal) { modal.classList.remove('open'); hideAdmin3d(); }
   });
   document.getElementById('prev-status-save')?.addEventListener('click', savePreviewStatus);
+  initAdminViewToggle();
 }
+
+/* Populate select trạng thái theo ĐÚNG state machine của backend
+   (ORDER_TRANSITIONS trong routes/orders.js): chỉ hiện các trạng thái
+   chuyển được hợp lệ + trạng thái hiện tại → admin không bao giờ bấm vào
+   409 transition-invalid nữa. Đơn terminal (completed/cancelled) khóa select. */
+const ORDER_TRANSITIONS_CLIENT = {
+  pending: ['paid', 'processing', 'cancelled', 'payment_failed'],
+  awaiting_payment: ['paid', 'processing', 'cancelled', 'payment_failed'],
+  payment_failed: ['paid', 'processing', 'cancelled'],
+  paid: ['processing', 'cancelled'],
+  processing: ['shipped', 'cancelled', 'completed'],
+  shipped: ['delivered', 'completed', 'cancelled'],
+  delivered: ['completed', 'cancelled'],
+  completed: [],
+  cancelled: [],
+};
 
 function populateStatusSelect(selectEl, currentStatus) {
   if (!selectEl) return;
-  selectEl.innerHTML = Object.entries(STATUS_META)
-    .map(([value, meta]) => `<option value="${value}" ${value === currentStatus ? 'selected' : ''}>${escapeHtml(meta.label())}</option>`)
+  const allowed = ORDER_TRANSITIONS_CLIENT[currentStatus] || [];
+  const options = [currentStatus, ...allowed];
+  const currentMeta = STATUS_META[currentStatus] || { label: () => currentStatus || 'N/A' };
+  selectEl.innerHTML = options
+    .map((value) => {
+      const meta = STATUS_META[value] || { label: () => value };
+      const isCurrent = value === currentStatus;
+      return `<option value="${value}" ${isCurrent ? 'selected' : ''}>${isCurrent ? `● ${escapeHtml(currentMeta.label())}` : `→ ${escapeHtml(meta.label())}`}</option>`;
+    })
     .join('');
+  // Đơn terminal: không còn chuyển tiếp nào → khóa select, title giải thích.
+  selectEl.disabled = allowed.length === 0;
+  selectEl.title = allowed.length === 0
+    ? t('admin.status.terminal', 'Đơn đã ở trạng thái cuối — không thể thay đổi.')
+    : t('admin.status.hint', 'Chỉ hiện các bước chuyển hợp lệ theo quy trình.');
 }
 
 async function savePreviewStatus() {
@@ -1721,7 +2207,7 @@ async function savePreviewStatus() {
     const response = await fetch(`${API_ORDERS}/${encodeURIComponent(order.orderId)}/status`, {
       method: 'PUT',
       headers: auth.getAuthHeaders(),
-      body: JSON.stringify({ status: newStatus }),
+      body: JSON.stringify({ status: newStatus, expectedUpdatedAt: order.updatedAt || null }),
     });
 
     if (!response.ok) {
@@ -1729,6 +2215,8 @@ async function savePreviewStatus() {
       throw new Error(err.error || t('admin.err.orderUpdate', 'Không thể cập nhật đơn hàng.'));
     }
 
+    const result = await response.json().catch(() => null);
+    if (result?.data?.updatedAt) order.updatedAt = result.data.updatedAt;
     order.status = newStatus;
     showAdminToast(t('admin.toast.orderUpdated', 'Đã cập nhật trạng thái đơn hàng.'));
     await loadDashboardData();

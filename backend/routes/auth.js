@@ -877,15 +877,23 @@ router.get('/me', authenticate, async (req, res) => {
     let credits = null;
     if (creditResult.recordset.length > 0) {
       const c = creditResult.recordset[0];
+      const dailyFreeLimit = Number(c.planDailyFree) || 0;
+      const dailyFreeUsed = Number(c.dailyFreeLowCreditsUsed) || 0;
       credits = {
         planId: c.displayPlanId,
         planName: c.planName || 'Free',
         planQuality: c.planQuality || 'low',
         highCredits: Number(c.highCredits) || 0,
         lowCredits: Number(c.bonusLowCredits) || 0,
-        dailyFreeLimit: Number(c.planDailyFree) || 0,
-        dailyFreeUsed: Number(c.dailyFreeLowCreditsUsed) || 0,
+        dailyFreeLimit,
+        dailyFreeUsed,
         dailyFreeResetDate: c.dailyFreeResetDate,
+        // Số lượt tạo còn lại theo từng loại (daily reset theo ngày);
+        // total = mọi lượt khả dụng hôm nay (daily → low → high).
+        remainingDaily: Math.max(0, dailyFreeLimit - dailyFreeUsed),
+        remainingLow: Number(c.bonusLowCredits) || 0,
+        remainingHigh: Number(c.highCredits) || 0,
+        remainingTotal: Math.max(0, dailyFreeLimit - dailyFreeUsed) + (Number(c.bonusLowCredits) || 0) + (Number(c.highCredits) || 0),
       };
     }
 

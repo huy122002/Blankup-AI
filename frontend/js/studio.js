@@ -328,7 +328,7 @@ function initBackDesignControls() {
   updateBackDesignControls();
 }
 function getCompositeCacheKey() {
-  const snap = (side) => sideLayers(side).map(l => [l.id, l.url, l.x, l.y, l.scale, l.rotation, l.visible, l.z, l.locked, l.opacity, l.crop ? 1 : 0, l.assetId, l.kind, l.name, l.prompt, l.style]);
+  const snap = (side) => sideLayers(side).map(l => [l.id, l.url, l.x, l.y, l.scale, l.rotation, l.visible, l.z, l.locked, l.opacity, l.crop ? 1 : 0, l.assetId, l.kind, l.name, l.prompt, l.style, l.flipH ? 1 : 0, l.flipV ? 1 : 0]);
   // JSON.stringify sánh nông các mảng lồng — cần key bổ sung khi có state đặc biệt:
   if (state.designLayers.front.some(l => l.crop) || state.designLayers.back.some(l => l.crop)) {
     return JSON.stringify({ f: snap('front'), b: snap('back'), crops: { front: state.designLayers.front.map(l => l.crop), back: state.designLayers.back.map(l => l.crop) },
@@ -508,6 +508,46 @@ function requireAuth() {
   if (isStudioAuthenticated()) return false;
   showStudioAuthPrompt('requireAuth');
   return true;
+}
+
+/* ============================================================
+   CREDIT REMAINING BADGE (studio)
+   Hiển thị số lượt tạo AI còn lại (daily free → low → high).
+   Nguồn: /api/auth/me (credits.remaining*) + remainingCredits trả kèm
+   từ response /generate(.from-image) để cập nhật không cần gọi lại.
+   Badge là UX-only: mọi lỗi bỏ qua, không bao giờ chặn tạo design.
+   ============================================================ */
+function renderCreditRemaining(credits) {
+  const badge = document.getElementById('creditRemainingBadge');
+  const textEl = document.getElementById('creditRemainingText');
+  if (!badge || !textEl || !credits) return;
+  const daily = Number(credits.remainingDaily) || 0;
+  const low = Number(credits.remainingLow) || 0;
+  const high = Number(credits.remainingHigh) || 0;
+  const total = credits.remainingTotal != null ? Number(credits.remainingTotal) : daily + low + high;
+  const parts = [];
+  if (daily > 0) parts.push(`${daily} miễn phí`);
+  if (low > 0) parts.push(`${low} low`);
+  if (high > 0) parts.push(`${high} high`);
+  textEl.textContent = total > 0
+    ? `Còn ${total} lượt tạo${parts.length ? ' (' + parts.join(' · ') + ')' : ''}`
+    : 'Hết lượt tạo AI';
+  badge.dataset.tone = total === 0 ? 'empty' : (daily === 0 && low === 0 ? 'low' : 'normal');
+  badge.hidden = false;
+}
+
+async function refreshCreditRemaining() {
+  if (!auth.isLoggedIn || !auth.isLoggedIn()) return;
+  try {
+    const resp = await fetch(`${API_BASE}/auth/me`, { headers: auth.getAuthHeaders() });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data && data.success && data.credits) renderCreditRemaining(data.credits);
+  } catch { /* UX-only — ignore */ }
+}
+
+function applyRemainingCreditsFromResponse(data) {
+  if (data && data.remainingCredits) renderCreditRemaining(data.remainingCredits);
 }
 
 function checkStudioAuthOnEntry() {
@@ -727,6 +767,9 @@ async function drawLayerOnContext(ctx, size, layer) {
     ctx.globalAlpha = Math.max(0, Math.min(1, Number(layer.opacity) || 0));
     ctx.translate(cx, cy);
     ctx.rotate(((layer.rotation || 0) * Math.PI) / 180);
+    // PRO EDIT: lật ảnh (non-destructive) — scale âm quanh tâm sau rotate,
+    // crop vẫn đúng hướng vùng chọn.
+    if (layer.flipH || layer.flipV) ctx.scale(layer.flipH ? -1 : 1, layer.flipV ? -1 : 1);
     if (c) ctx.drawImage(src, sx, sy, sw, sh, -w / 2, -h / 2, w, h);
     else ctx.drawImage(src, -w / 2, -h / 2, w, h);
     ctx.restore();
@@ -956,7 +999,7 @@ function renderLayersOverlay() {
     const cropStyle = inCrop && (c.w < 1 || c.h < 1)
       ? `object-fit:none;background-image:url('${l.url}');background-repeat:no-repeat;`
       : '';
-    const style = `left:0;top:0;width:46%;max-width:320px;transform:translate(calc(-50% + ${l.x}%), calc(-50% + ${l.y}%)) scale(${l.scale}) rotate(${l.rotation || 0}deg);z-index:${10 + l.z};cursor:pointer;opacity:${Math.max(0, Math.min(1, Number(l.opacity) || 0))};${cropStyle}${isSel && !cropping ? 'outline:2px dashed var(--s-accent, #ff6b00);outline-offset:3px;' : ''}`;
+    const style = `left:0;top:0;width:46%;max-width:320px;transform:translate(calc(-50% + ${l.x}%), calc(-50% + ${l.y}%)) scale(${l.scale}) rotate(${l.rotation || 0}deg) scaleX(${l.flipH ? -1 : 1}) scaleY(${l.flipV ? -1 : 1});z-index:${10 + l.z};cursor:grab;opacity:${Math.max(0, Math.min(1, Number(l.opacity) || 0))};${cropStyle}${isSel && !cropping ? 'outline:2px dashed var(--s-accent, #ff6b00);outline-offset:3px;' : ''}`;
     return `<img src="${escapeAttr(l.url)}" alt="${escapeAttr(l.name || 'Design')}" class="mockup-print-design" data-layer-id="${escapeAttr(l.id)}" draggable="false" style="${style}">`;
   }).join('') + (activeText ? renderStyledTextOverlay(activeText) : '');
   wireTextOverlayDrag(overlay);
@@ -971,6 +1014,20 @@ function renderLayersOverlay() {
       const layer = sideLayers(side).find(l => l.id === img.dataset.layerId);
       if (!layer) return;
       if (layer.locked) { showToast(`"${layer.name || 'Mẫu'}" đang khóa — bấm 🔓 để mở.`, 'warning', 1800); return; }
+      // PRO MODIFIER: Alt+drag = nhân bản KÉO NHANH (Figma-style) — giữ nguyên
+      // layer gốc, kéo thẳng bản sao tới chỗ mới. 1 gesture = 1 undo entry.
+      if (e.altKey) {
+        const dup = duplicateLayer(side, layer.id);
+        if (!dup) return;
+        // duplicateLayer đã refresh overlay → tìm node bản sao và chuyển giao
+        // gesture kéo sang nó (tái dispatch pointerdown trên node mới).
+        const dupNode = document.querySelector(`#mockupDesign img[data-layer-id="${CSS.escape(dup.id)}"]`);
+        if (dupNode) {
+          const re = new PointerEvent('pointerdown', { clientX: e.clientX, clientY: e.clientY, bubbles: true, cancelable: true, pointerId: e.pointerId });
+          dupNode.dispatchEvent(re);
+        }
+        return;
+      }
       // Đo rect TRƯỚC khi selectLayer (nó re-render overlay và thay thế node img
       // → rect trên node detached sẽ là 0x0).
       const layerBox = img.getBoundingClientRect();
@@ -1064,7 +1121,7 @@ function renderLayersOverlay() {
    % tính theo kích thước chính ảnh layer. */
 function moveOverlayLayerNode(img, layer) {
   if (!img || !layer) return;
-  img.style.transform = `translate(calc(-50% + ${layer.x}%), calc(-50% + ${layer.y}%)) scale(${layer.scale}) rotate(${layer.rotation || 0}deg)`;
+  img.style.transform = `translate(calc(-50% + ${layer.x}%), calc(-50% + ${layer.y}%)) scale(${layer.scale}) rotate(${layer.rotation || 0}deg) scaleX(${layer.flipH ? -1 : 1}) scaleY(${layer.flipV ? -1 : 1})`;
   img.style.opacity = String(Math.max(0, Math.min(1, Number(layer.opacity) || 0)));
 }
 
@@ -1933,6 +1990,8 @@ function renderLayerList() {
         <button class="layer-btn" data-action="down" title="Đưa xuống dưới" ${idx === layers.length - 1 ? 'disabled' : ''}>▼</button>
         <button class="layer-btn" data-action="toggle" title="Ẩn/hiện" aria-pressed="${l.visible === false ? 'true' : 'false'}">${l.visible === false ? '🚫' : '👁'}</button>
         <button class="layer-btn${locked ? ' active' : ''}" data-action="lock" title="${locked ? 'Mở khóa để sửa' : 'Khóa chống sửa/xóa'}" aria-pressed="${locked}">🔒</button>
+        <button class="layer-btn${l.flipH ? ' active' : ''}" data-action="flip-h" title="Lật ngang (mirror)">⇋</button>
+        <button class="layer-btn${l.flipV ? ' active' : ''}" data-action="flip-v" title="Lật dọc">⇅</button>
         <button class="layer-btn" data-action="duplicate" title="Nhân bản (Ctrl+D)">⧉</button>
         <button class="layer-btn" data-action="replace" title="Thay bằng mẫu mới nhất">⟳</button>
         <button class="layer-btn layer-del" data-action="delete" title="Xóa mẫu" ${locked ? 'disabled title="Đang khóa"' : ''}>✕</button>
@@ -1980,7 +2039,18 @@ async function handleLayerAction(side, id, action) {
     showToast('Mẫu đang khóa — mở khóa để chỉnh.', 'warning', 1600);
     return;
   }
-  if (action === 'delete') {
+  if (action === 'flip-h' || action === 'flip-v') {
+    // PRO EDIT: lật non-destructive — chỉ đổi cờ, asset gốc nguyên vẹn.
+    // Lật trong Crop Mode không được phép (giống các transform khác).
+    if (isCropMode()) return;
+    if (layer) {
+      beginDesignUndoBatch('flip');
+      if (action === 'flip-h') layer.flipH = !layer.flipH;
+      else layer.flipV = !layer.flipV;
+      pushDesignUndo('flip');
+      showToast(layer.flipH !== undefined ? (action === 'flip-h' ? (layer.flipH ? 'Đã lật ngang — bấm lần nữa để lật lại.' : 'Đã lật lại bình thường.') : (layer.flipV ? 'Đã lật dọc — bấm lần nữa để lật lại.' : 'Đã lật lại bình thường.')) : '', 'success', 1500);
+    }
+  } else if (action === 'delete') {
     removeLayerWithUndo(side, id);
   } else if (action === 'duplicate') {
     duplicateLayer(side, id);
@@ -2685,6 +2755,77 @@ function initUpload() {
   // File picker
   fileInput.addEventListener('change', e => { if (e.target.files[0]) handleFile(e.target.files[0]); });
 
+  /* PRO UPLOAD: KÉO FILE THẲNG LÊN ÁO → đặt lên áo NGAY (không qua panel
+     upload 2 bước). Drop lên khung 3D/2D = upload + place + select tức thì.
+     Giữ nguyên dropzone cũ cho người thích quy trình xem trước. */
+  const canvasHost = document.getElementById('canvasViewer');
+  if (canvasHost && !canvasHost.dataset.fileDropWired) {
+    canvasHost.dataset.fileDropWired = '1';
+    let dropDepth = 0;
+    const overlayEl = document.createElement('div');
+    overlayEl.className = 'canvas-drop-overlay'; // mặc định display:none (CSS)
+    overlayEl.innerHTML = '<div class="canvas-drop-hint">📥 Thả ảnh để in lên áo</div>';
+    canvasHost.appendChild(overlayEl);
+    /* WATCHDOG — overlay chỉ được sống KHI ĐANG KÉO FILE. Kéo file rồi hủy
+       giữa chừng (Esc, rê ra ngoài cửa sổ, hủy trên OS) → dragleave có thể
+       KHÔNG bắn → overlay treo che hết vùng sửa (bug user báo). Giờ: mọi
+       lần hiện đều đặt hẹn giờ tự hủy 6s; MỌI dragover tiếp tục (bắn liên
+       tục trong lúc kéo thật) đều gia hạn — kéo thật không bao giờ bị tắt
+       giữa chừng (6s >> khoảng cách 2 dragover), hủy thật thì overlay tự
+       tháo sau tối đa 6s. Thêm dragend + window blur để tắt ngay khi có thể. */
+    let dropWatchdog = null;
+    const hideDropOverlay = () => {
+      dropDepth = 0;
+      overlayEl.classList.remove('is-active');
+      if (dropWatchdog) { clearTimeout(dropWatchdog); dropWatchdog = null; }
+    };
+    const showDropOverlay = () => {
+      overlayEl.classList.add('is-active');
+      if (dropWatchdog) clearTimeout(dropWatchdog);
+      dropWatchdog = setTimeout(hideDropOverlay, 6000); // tự-vệ: không bao giờ kẹt
+    };
+    canvasHost.addEventListener('dragenter', (e) => {
+      if (!e.dataTransfer?.types?.includes('Files')) return;
+      e.preventDefault();
+      dropDepth++;
+      showDropOverlay();
+    });
+    canvasHost.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer?.types?.includes('Files')) return;
+      e.preventDefault();
+      showDropOverlay(); // gia hạn watchdog — kéo thật luôn còn sống
+    });
+    canvasHost.addEventListener('dragleave', () => {
+      dropDepth = Math.max(0, dropDepth - 1);
+      if (dropDepth === 0) hideDropOverlay();
+    });
+    window.addEventListener('dragend', hideDropOverlay);
+    window.addEventListener('blur', hideDropOverlay);
+    canvasHost.addEventListener('drop', async (e) => {
+      if (!e.dataTransfer?.types?.includes('Files')) return;
+      e.preventDefault();
+      hideDropOverlay();
+      const file = e.dataTransfer.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) { showToast('Chỉ chấp nhận file ảnh!', 'warning'); return; }
+      if (file.size > 10 * 1024 * 1024) { showToast('File quá lớn (tối đa 10MB)!', 'warning'); return; }
+      try {
+        showToast('Đang tải ảnh lên…', 'info', 2000);
+        const asset = await uploadFileToServer(file, 'asset');
+        if (!state.assetLibrary) state.assetLibrary = [];
+        state.assetLibrary.unshift(asset);
+        const layer = placeUploadedAsset(asset.assetId);
+        if (layer) {
+          state.activePlacementLayer = 'image';
+          refreshSelectionFrameSoon();
+          showToast(`Đã đặt "${asset.name || 'ảnh'}" lên áo — kéo thẳng để chỉnh.`, 'success', 2400);
+        }
+      } catch (err) {
+        showToast(err.message || 'Tải ảnh thất bại', 'error');
+      }
+    });
+  }
+
   // Mode radio change
   if (uploadModeAsset && uploadModeReference) {
     const updateModeUI = () => {
@@ -3069,6 +3210,7 @@ function buildSavedDesignPayload() {
     opacity: Number(l.opacity) || 1, visible: l.visible !== false,
     locked: l.locked === true, z: l.z,
     crop: l.crop ? { ...l.crop } : null,
+    flipH: l.flipH === true, flipV: l.flipV === true,
     prompt: l.prompt || '', style: l.style || '',
   }));
   const payload = {
@@ -3376,6 +3518,7 @@ async function generateFromPrompt(targetSide = 'front', opts = {}) {
     if (data.success && data.designUrl) {
       state.isGeneratingAi = false;
       completeGenProgress(true);
+      applyRemainingCreditsFromResponse(data);
       const side = isBack ? 'back' : 'front';
       // Replace the draft layer in place (same id/placement) — never append
       // a second layer for one generation, never wipe sibling layers.
@@ -3494,6 +3637,7 @@ async function generateFromImage() {
       if (mode === 'reference' && data.referenceAssetId) {
         state.pendingReferenceAssetId = data.referenceAssetId;
       }
+      applyRemainingCreditsFromResponse(data);
       await showDesignOnMockup(data.designUrl, data.productMockupUrl, data.productMockupBlank, undefined, { name: String(data.prompt || 'Ảnh remix').slice(0, 24), designId: data.designId, prompt: data.prompt, style: data.style });
       updateShareButton();
       saveToHistory(data);
@@ -4239,6 +4383,8 @@ function sanitizeLayer(l) {
   l.visible = l.visible !== false;
   l.locked = l.locked === true; // layer khóa: select được nhưng không sửa được
   l.opacity = clampNum(l.opacity, 0, 1, 1); // 0..1 — composite + overlay + 3D đồng bộ
+  l.flipH = l.flipH === true; // PRO EDIT: lật ngang (mirror) — non-destructive
+  l.flipV = l.flipV === true; // PRO EDIT: lật dọc — non-destructive
   if (!Number.isFinite(l.z)) l.z = 0;
   // Non-destructive crop state (tỉ lệ vùng gốc): 1 = toàn ảnh. Không bao giờ
   // phá asset gốc — chỉ là state re-editable.
@@ -4489,6 +4635,7 @@ function designSnapshot() {
     opacity: Number(l.opacity) || 0, z: l.z, name: l.name,
     designId: l.designId || null, prompt: l.prompt || '', style: l.style || 'minimalist',
     crop: l.crop ? { ...l.crop } : null, createdAt: l.createdAt || 0,
+    flipH: l.flipH === true, flipV: l.flipV === true,
   }));
   return JSON.stringify({
     front: dump('front'), back: dump('back'),
@@ -4667,6 +4814,7 @@ function duplicateLayer(side, id) {
     x: src.x + 6, y: src.y + 4, scale: src.scale, rotation: src.rotation || 0,
     opacity: Number(src.opacity) || 1,
     crop: src.crop ? { ...src.crop } : null,
+    flipH: src.flipH === true, flipV: src.flipV === true,
   });
   if (created) {
     refreshSideViews();
@@ -5167,6 +5315,20 @@ function initCanvasLayerDrag() {
   container.addEventListener('pointerup', stop);
   container.addEventListener('pointercancel', stop);
 
+  // PRO SHORTCUT: DOUBLE-CLICK ảnh trên áo → vào Crop Mode ngay (chuẩn editor
+  // chuyên nghiệp — Photoshop/Illustrator đều dùng double-click để "vào trong"
+  // chỉnh nội dung object). Không cần tìm nút Crop trên toolbar.
+  container.addEventListener('dblclick', (e) => {
+    if (isCropMode()) return; // đã trong crop → double-click không loop
+    if (state.interactionMode !== 'position') return;
+    const hit = hitTestPrintObject(e.clientX, e.clientY);
+    if (!hit || hit.kind !== 'image' || !hit.layer) return;
+    if (hit.layer.locked) { showToast(`"${hit.layer.name || 'Mẫu'}" đang khóa — mở khóa để cắt.`, 'warning', 1800); return; }
+    selectLayer(state.currentView, hit.layer.id);
+    setActivePlacementLayer('image');
+    enterCropMode();
+  });
+
   // WHEEL-TO-SCALE: lăn chuột trên canvas (chế độ Vị trí) đổi kích thước
   // layer đang chọn (hoặc chữ). Ctrl+lăn = bước lớn. Đây là shortcut tiêu
   // chuẩn của mọi phần mềm thiết kế — không conflict với page scroll vì
@@ -5176,6 +5338,30 @@ function initCanvasLayerDrag() {
     if (state.interactionMode !== 'position') return;
     e.preventDefault();
     const stepDir = e.deltaY < 0 ? 1 : -1;
+    // PRO MODIFIER: Shift+lăn = XOAY (15°/notch, Ctrl+Shift = 5° fine) thay vì
+    // scale — chuẩn mọi editor chuyên nghiệp. Không Shift → scale như cũ.
+    if (e.shiftKey) {
+      const rotStep = e.ctrlKey ? 5 : 15;
+      let rotChanged = false;
+      if (state.activePlacementLayer === 'text' && getSideCustomText()) {
+        if (getSideTextLocked()) { showToast('Chữ đang khóa.', 'warning', 1400); return; }
+        const tp = state.textPlacement;
+        const nr = clampNum(Math.round((tp.rotation || 0) + stepDir * rotStep), ...LAYER_BOUNDS.rotation);
+        if (nr !== tp.rotation) { tp.rotation = nr; rotChanged = true; }
+      } else {
+        const sel = getSelectedLayer();
+        if (!sel) return;
+        if (sel.locked) { showToast(`"${sel.name || 'Mẫu'}" đang khóa.`, 'warning', 1400); return; }
+        const nr = clampNum(Math.round((sel.rotation || 0) + stepDir * rotStep), ...LAYER_BOUNDS.rotation);
+        if (nr !== sel.rotation) { sel.rotation = nr; rotChanged = true; }
+      }
+      if (!rotChanged) return;
+      commitActivePlacements();
+      syncPlacementInputs();
+      renderLayersOverlay();
+      scheduleViewerUpdateThrottled();
+      return;
+    }
     const step = e.ctrlKey ? 0.12 : 0.05;
     // PHASE 3: tính trước giá trị scale mới — chỉ commit/rebuild khi THỰC SỰ đổi
     // (tránh rebuild DOM + composite mù mỗi notch khi locked/no-selection/bão hòa).
@@ -5395,6 +5581,7 @@ function updateOrderSummary() {
 }
 
 function resetOrderModal() {
+  stopOrderPaymentWatch();
   state.orderIdempotencyKey = ''; // đóng modal → lượt đặt hàng tiếp theo là đơn logic mới
   document.getElementById('orderFormContent').style.display = 'block';
   document.getElementById('orderSuccess').style.display = 'none';
@@ -5476,7 +5663,7 @@ async function submitOrder() {
     const payment = data.payment || state.selectedPaymentMethod;
 
     if (payment === 'VNPAY') {
-      showOrderSuccess(orderId, payment, data.transferContent);
+      showOrderSuccess(data, orderId, payment);
       // Success micro for VNPAY order creation (before redirect)
       showButtonSuccess(submitBtn, '✓ Đã tạo đơn');
       try {
@@ -5505,7 +5692,7 @@ async function submitOrder() {
       return;
     }
 
-    showOrderSuccess(orderId, payment, data.transferContent);
+    showOrderSuccess(data, orderId, payment);
     showButtonSuccess(submitBtn, '✓ Đã đặt');
   } catch (e) {
     if (e?.message === 'Unauthorized') { /* auth prompt already shown */ }
@@ -5523,7 +5710,11 @@ async function submitOrder() {
   }
 }
 
-function showOrderSuccess(orderId, payment, transferContent) {
+function showOrderSuccess(order, fallbackOrderId, fallbackPayment) {
+  const payload = order && typeof order === 'object' ? order : {};
+  const orderId = payload.orderId || fallbackOrderId;
+  const payment = payload.payment || fallbackPayment;
+
   document.getElementById('orderFormContent').style.display = 'none';
   document.getElementById('orderSuccess').style.display = 'block';
   document.getElementById('orderSuccessId').textContent = `Mã đơn hàng: ${orderId}`;
@@ -5531,20 +5722,109 @@ function showOrderSuccess(orderId, payment, transferContent) {
   if (payment === 'BANK_TRANSFER') {
     const box = document.getElementById('bankTransferBox');
     box.style.display = 'block';
-    const amount = PRODUCT_PRICES[state.selectedProductType] * state.quantity;
-    const qrUrl = `https://img.vietqr.io/image/${BANK_TRANSFER_INFO.bankId}-${BANK_TRANSFER_INFO.accountNumber}-compact2.png?amount=${amount}&addInfo=${encodeURIComponent(transferContent || orderId)}&accountName=${encodeURIComponent(BANK_TRANSFER_INFO.accountName)}`;
+    const bank = payload.bankInfo || BANK_TRANSFER_INFO;
+    // The amount MUST come from the server: it is the discounted finalPrice, and
+    // the SePay webhook reconciles the transfer against exactly that number.
+    const amount = Number(payload.amount) || (PRODUCT_PRICES[state.selectedProductType] || 250000) * state.quantity;
+    const memo = payload.transferContent || `BLANKUP-${orderId}`;
+    const qrUrl = `https://img.vietqr.io/image/${bank.bankId}-${bank.accountNumber}-${bank.template || 'compact2'}.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(bank.accountName)}`;
     const qrImg = document.getElementById('successQrImage');
     if (qrImg) { qrImg.style.visibility = ''; qrImg.src = qrUrl; }
-    document.getElementById('successBankName').textContent = BANK_TRANSFER_INFO.bankName;
-    document.getElementById('successAccountName').textContent = BANK_TRANSFER_INFO.accountName;
-    document.getElementById('successAccountNumber').textContent = BANK_TRANSFER_INFO.accountNumber;
-    document.getElementById('successTransferContent').textContent = transferContent || orderId;
+    document.getElementById('successBankName').textContent = bank.bankName || '';
+    document.getElementById('successAccountName').textContent = bank.accountName || '';
+    document.getElementById('successAccountNumber').textContent = bank.accountNumber || '';
+    document.getElementById('successTransferContent').textContent = memo;
+    setBankTransferStatus('Đang chờ hệ thống xác nhận chuyển khoản...', 'waiting');
+    // Wait for a REAL confirmation (SePay webhook / admin action) before paying
+    // any success state. Until that arrives the screen keeps saying "waiting".
+    startOrderPaymentWatch(orderId, payload.paymentWatchToken);
   }
 
   if (payment === 'VNPAY') {
     const note = document.querySelector('.order-success-note');
     if (note) note.textContent = 'Đang chuyển hướng đến cổng thanh toán VNPay…';
   }
+}
+
+/* ============================================================
+   ORDER PAYMENT WATCH
+   Only a server-side confirmation may flip the checkout screen to "paid".
+   Primary channel is a Server-Sent Events push; a 5s poll is kept as a safety
+   net for proxies/browsers that block or silently drop the stream.
+   ============================================================ */
+let orderWatch = null;
+
+function setBankTransferStatus(text, tone) {
+  const el = document.getElementById('bankTransferStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.dataset.tone = tone || 'waiting';
+}
+
+function stopOrderPaymentWatch() {
+  if (!orderWatch) return;
+  try { orderWatch.source?.close(); } catch { /* already closed */ }
+  if (orderWatch.timer) clearInterval(orderWatch.timer);
+  orderWatch = null;
+}
+
+function startOrderPaymentWatch(orderId, watchToken) {
+  stopOrderPaymentWatch();
+  if (!orderId) return;
+
+  const state2 = { orderId, source: null, timer: null, done: false };
+  orderWatch = state2;
+  const token = watchToken || '';
+
+  const apply = (payload) => {
+    if (!payload || orderWatch !== state2 || state2.done) return;
+    if (payload.paymentStatus === 'paid') {
+      state2.done = true;
+      setBankTransferStatus('✅ Đã nhận thanh toán — đơn hàng đang được xử lý.', 'paid');
+      const note = document.querySelector('.order-success-note');
+      if (note) note.textContent = 'Thanh toán đã được ngân hàng xác nhận tự động.';
+      showToast('Thanh toán thành công! Đơn hàng đã được xác nhận.', 'success', 8000);
+      showOrderReviewCta(orderId, token); // mời đánh giá NGAY — hoạt động cả cho khách guest
+      stopOrderPaymentWatch();
+      return;
+    }
+    if (payload.paymentStatus === 'underpaid') {
+      setBankTransferStatus('⚠️ Số tiền chuyển chưa đủ. Vui lòng chuyển bổ sung đúng số tiền.', 'warn');
+      return;
+    }
+    if (payload.status === 'cancelled') {
+      setBankTransferStatus('Đơn hàng đã bị hủy.', 'warn');
+      stopOrderPaymentWatch();
+    }
+  };
+
+  // 1) Instant push from the server.
+  try {
+    if (typeof EventSource !== 'undefined') {
+      const url = `${API_BASE}/orders/stream?orderId=${encodeURIComponent(orderId)}&token=${encodeURIComponent(token)}`;
+      const source = new EventSource(url);
+      state2.source = source;
+      source.addEventListener('order', (event) => {
+        try { apply(JSON.parse(event.data)); } catch { /* ignore malformed frame */ }
+      });
+      source.addEventListener('error', () => { /* polling keeps the screen correct */ });
+    }
+  } catch { /* SSE unsupported → polling only */ }
+
+  // 2) Polling safety net.
+  const poll = async () => {
+    if (orderWatch !== state2 || state2.done) return;
+    try {
+      const resp = await fetch(`${API_BASE}/orders/${encodeURIComponent(orderId)}/payment-status?token=${encodeURIComponent(token)}`, {
+        headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+      });
+      if (!resp.ok) return;
+      const data = await resp.json();
+      if (data && data.success) apply(data);
+    } catch { /* transient — next tick retries */ }
+  };
+  state2.timer = setInterval(poll, 5000);
+  setTimeout(poll, 1200);
 }
 
 /* ============================================================
@@ -5998,12 +6278,19 @@ document.addEventListener('DOMContentLoaded', () => {
   // Entry guard: must notify immediately if not authenticated (fix: Studio login-entry)
   // Use rAF + timeout to ensure auth.js init has run and toast.js ready, deduped
   requestAnimationFrame(() => setTimeout(checkStudioAuthOnEntry, 80));
+  // Credit badge: load once after entry (plain setTimeout — rAF is throttled in
+  // background tabs), again on auth change, and whenever the tab becomes visible.
+  setTimeout(refreshCreditRemaining, 400);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) refreshCreditRemaining();
+  });
 
   // Also re-check when auth state changes (e.g., logout then back, or login via modal)
   window.addEventListener('storage', (e) => {
     if (e.key === 'blankup_token' || e.key === 'blankup_user') {
       if (isStudioAuthenticated()) hideStudioAuthPrompt();
       else showStudioAuthPrompt('storage');
+      refreshCreditRemaining();
     }
   });
 
@@ -6104,3 +6391,137 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 i18n.onChange?.(() => loadCommunityDesigns());
+
+/* ============================================================
+   ORDER REVIEW CTA — mời đánh giá ngay sau khi thanh toán được xác nhận.
+   Hoạt động cho CẢ khách guest (chứng thực bằng paymentWatchToken phát tại
+   checkout) và user đã đăng nhập (JWT). Một đơn chỉ đánh giá được một lần —
+   server chặn trùng (409) và giao diện chuyển sang trạng thái đã cảm ơn.
+   ============================================================ */
+(function () {
+  'use strict';
+
+  const ORDER_RATING_LABELS = { 1: 'Không hài lòng', 2: 'Cần cải thiện', 3: 'Bình thường', 4: 'Rất tốt', 5: 'Tuyệt vời' };
+  let orderReviewRating = 5;
+  let orderReviewPreview = 0;
+  let orderReviewOrderId = null;
+  let orderReviewWatchToken = '';
+
+  function renderOrderReviewStars() {
+    const wrap = document.getElementById('orderReviewStars');
+    const label = document.getElementById('orderReviewLabel');
+    if (!wrap) return;
+    const shown = orderReviewPreview || orderReviewRating;
+    wrap.innerHTML = [1, 2, 3, 4, 5].map(n =>
+      `<button type="button" class="order-review-star${n <= shown ? ' on' : ''}${orderReviewPreview && n <= orderReviewPreview ? ' preview' : ''}" data-star="${n}" role="radio" aria-checked="${n === orderReviewRating}" aria-label="${n} sao">★</button>`
+    ).join('');
+    if (label) {
+      label.textContent = ORDER_RATING_LABELS[shown] || '';
+      label.dataset.level = String(shown);
+    }
+  }
+
+  function showOrderReviewCta(orderId, watchToken) {
+    orderReviewOrderId = orderId || null;
+    orderReviewWatchToken = watchToken || '';
+    orderReviewRating = 5;
+    orderReviewPreview = 0;
+    const cta = document.getElementById('orderReviewCta');
+    if (!cta) return;
+    const done = document.getElementById('orderReviewDone');
+    const ta = document.getElementById('orderReviewText');
+    const count = document.getElementById('orderReviewCount');
+    const btn = document.getElementById('orderReviewSubmitBtn');
+    if (done) done.style.display = 'none';
+    if (ta) ta.value = '';
+    if (count) count.textContent = '0/600';
+    if (btn) { btn.disabled = false; btn.textContent = 'Gửi đánh giá'; btn.classList.remove('loading', 'success'); }
+    renderOrderReviewStars();
+    cta.style.display = 'block';
+  }
+  window.showOrderReviewCta = showOrderReviewCta;
+
+  function submitOrderReview() {
+    if (!orderReviewOrderId) return;
+    const btn = document.getElementById('orderReviewSubmitBtn');
+    if (!btn || btn.disabled) return;
+    const comment = (document.getElementById('orderReviewText')?.value || '').trim();
+    btn.disabled = true;
+    btn.textContent = '⏳ Đang gửi...';
+    btn.classList.add('loading');
+    const headers = { 'Content-Type': 'application/json' };
+    if (window.auth && typeof window.auth.getAuthHeaders === 'function') {
+      Object.assign(headers, window.auth.getAuthHeaders());
+    }
+    fetch(window.location.origin + '/api/reviews', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        orderId: orderReviewOrderId,
+        rating: orderReviewRating,
+        comment: comment || undefined,
+        watchToken: orderReviewWatchToken || undefined,
+      }),
+    }).then(async (resp) => {
+      const data = await resp.json().catch(() => ({}));
+      const done = document.getElementById('orderReviewDone');
+      if (!resp.ok || data.success === false) {
+        // Đã đánh giá rồi (409) → coi như thành công, hiện trạng thái cảm ơn.
+        if (resp.status === 409) {
+          if (done) { done.textContent = '✓ Đơn này đã được đánh giá trước đó — cảm ơn bạn!'; done.style.display = 'block'; }
+          const btnDup = document.getElementById('orderReviewSubmitBtn');
+          if (btnDup) { btnDup.textContent = '✓ Đã gửi'; btnDup.classList.remove('loading'); btnDup.disabled = false; }
+          hideOrderReviewForm();
+          return;
+        }
+        throw new Error(data.error || 'Không thể gửi đánh giá.');
+      }
+      if (done) done.style.display = 'block';
+      const btnOk = document.getElementById('orderReviewSubmitBtn');
+      if (btnOk) { btnOk.textContent = '✓ Đã gửi'; btnOk.classList.remove('loading'); btnOk.classList.add('success'); }
+      hideOrderReviewForm();
+    }).catch((err) => {
+      const btn2 = document.getElementById('orderReviewSubmitBtn');
+      if (btn2) { btn2.disabled = false; btn2.textContent = 'Gửi đánh giá'; btn2.classList.remove('loading'); }
+      if (typeof showToast === 'function') showToast(err.message || 'Không thể gửi đánh giá.', 'error');
+    });
+  }
+
+  function hideOrderReviewForm() {
+    const head = document.querySelector('#orderReviewCta .order-review-head');
+    const ta = document.getElementById('orderReviewText');
+    const foot = document.querySelector('#orderReviewCta .order-review-foot');
+    if (head) head.style.display = 'none';
+    if (ta) ta.style.display = 'none';
+    if (foot) foot.style.display = 'none';
+  }
+
+  document.addEventListener('click', (e) => {
+    const star = e.target.closest('#orderReviewStars [data-star]');
+    if (star) {
+      orderReviewRating = Number(star.dataset.star) || 5;
+      orderReviewPreview = 0;
+      renderOrderReviewStars();
+      return;
+    }
+    if (e.target.closest('#orderReviewSubmitBtn')) submitOrderReview();
+  });
+
+  document.addEventListener('mouseover', (e) => {
+    const star = e.target.closest('#orderReviewStars [data-star]');
+    if (star) {
+      orderReviewPreview = Number(star.dataset.star) || 0;
+      renderOrderReviewStars();
+      return;
+    }
+    if (e.target.closest('#orderReviewCta') && orderReviewPreview) {
+      orderReviewPreview = 0;
+      renderOrderReviewStars();
+    }
+  });
+
+  document.getElementById('orderReviewText')?.addEventListener('input', (e) => {
+    const count = document.getElementById('orderReviewCount');
+    if (count) count.textContent = `${e.target.value.length}/600`;
+  });
+})();

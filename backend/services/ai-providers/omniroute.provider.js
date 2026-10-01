@@ -3,28 +3,66 @@
 // Supports POST /v1/images/generations and POST /v1/images/edits (multipart)
 const fs = require('fs');
 const path = require('path');
-const { BaseAIProvider, AIProviderError } = require('./base.provider');
+const { BaseAIProvider, AIProviderError, isQuotaExhaustedError } = require('./base.provider');
 
 const uploadsDir = path.join(__dirname, '../../uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
-function saveGeneratedImage(base64Image, designId) {
-  if (!base64Image) throw new Error('AI response did not include image data.');
-  const fileName = `${designId}.png`;
+// Magic-byte sniffing — parity with the Cloudflare/Gemini/OpenAI providers, so a
+// JPEG returned by an upstream is never stored (and served) as a .png.
+function detectImageExt(buffer) {
+  if (!buffer || buffer.length < 12) return null;
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return 'png';
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) return 'jpg';
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) return 'gif';
+  if (buffer.slice(0, 4).toString() === 'RIFF' && buffer.slice(8, 12).toString() === 'WEBP') return 'webp';
+  return null;
+}
+
+function saveGeneratedImageBuffer(buffer, designId) {
+  if (!buffer || !buffer.length) throw new Error('AI response did not include image data.');
+  const ext = detectImageExt(buffer) || 'png';
+  const fileName = `${designId}.${ext}`;
   const filePath = path.join(uploadsDir, fileName);
-  fs.writeFileSync(filePath, Buffer.from(base64Image, 'base64'));
+  fs.writeFileSync(filePath, buffer);
   return `/uploads/${fileName}`;
 }
-function extractBase64Image(data) {
-  return (
+
+function saveGeneratedImage(base64Image, designId) {
+  if (!base64Image) throw new Error('AI response did not include image data.');
+  const buffer = Buffer.from(base64Image, 'base64');
+  if (!buffer.length) throw new Error('AI response did not include image data.');
+  return saveGeneratedImageBuffer(buffer, designId);
+}
+
+// A gateway may answer with inline base64 OR with a hosted URL. Those two are NOT
+// interchangeable: a URL must be downloaded. Treating it as base64 used to write
+// the URL text itself to disk as "<designId>.png", report success, and charge the
+// user a credit for an unreadable image.
+function extractImagePayload(data) {
+  const base64 =
     data?.data?.[0]?.b64_json ||
     data?.result?.image ||
     data?.result?.images?.[0] ||
     data?.image ||
     data?.images?.[0] ||
-    data?.b64_json ||
-    data?.data?.[0]?.url // OmniRoute may return url, but blankup expects b64; fallback will be handled elsewhere
-  );
+    data?.b64_json;
+  if (base64) return { base64, url: null };
+  const url = data?.data?.[0]?.url || data?.url || data?.result?.url;
+  if (url) return { base64: null, url };
+  return { base64: null, url: null };
+}
+
+async function materializeImage(payload, designId) {
+  if (payload.base64) return saveGeneratedImage(payload.base64, designId);
+  if (payload.url) {
+    const imgResp = await fetch(payload.url);
+    if (!imgResp.ok) {
+      throw new Error(`OmniRoute returned an image URL that could not be downloaded (status ${imgResp.status})`);
+    }
+    return saveGeneratedImageBuffer(Buffer.from(await imgResp.arrayBuffer()), designId);
+  }
+  throw new Error('OmniRoute response did not include image data.');
 }
 
 async function postOmnirouteJson(baseUrl, apiKey, model, prompt, size, timeoutMs) {
@@ -94,20 +132,14 @@ class OmniRouteProvider extends BaseAIProvider {
     }
     try {
       const data = await postOmnirouteJson(this.baseUrl, this.apiKey, this.model, finalPrompt || prompt, size, this.timeoutMs);
-      // OmniRoute may return url instead of b64; if b64 missing but url present, we need to fetch url? For blankup we expect b64.
-      // Handle both: if b64 present use it, else if url present fetch image bytes
-      let b64 = extractBase64Image(data);
-      if (!b64 && data?.data?.[0]?.url) {
-        // Fetch image url to base64 (optional)
-        const imgResp = await fetch(data.data[0].url);
-        const buf = Buffer.from(await imgResp.arrayBuffer());
-        b64 = buf.toString('base64');
-      }
-      const url = saveGeneratedImage(b64, designId);
-      return { designUrl: url, finalPrompt };
+      const payload = extractImagePayload(data);
+      const designUrl = await materializeImage(payload, designId);
+      return { designUrl, finalPrompt };
     } catch (e) {
-      const retryable = e.name === 'AbortError' || (e.statusCode >= 500 && e.statusCode < 600) || e.statusCode === 429;
-      throw new AIProviderError({ provider: this.name, code: e.code || 'OMNIROUTE_ERROR', message: e.message, retryable, statusCode: e.statusCode || 500 });
+      // Exhausted quota / billing 429s are NOT retryable — fall through immediately.
+      const quota = isQuotaExhaustedError(e.statusCode, e.message);
+      const retryable = !quota && (e.name === 'AbortError' || (e.statusCode >= 500 && e.statusCode < 600) || e.statusCode === 429);
+      throw new AIProviderError({ provider: this.name, code: quota ? 'OMNIROUTE_QUOTA_EXHAUSTED' : (e.code || 'OMNIROUTE_ERROR'), message: e.message, retryable, statusCode: e.statusCode || 500 });
     }
   }
 
@@ -129,19 +161,16 @@ class OmniRouteProvider extends BaseAIProvider {
       // Also try image[] for compatibility
       // formData.append('image[]', ...) not needed for OmniRoute
       const data = await postOmnirouteForm(this.baseUrl, this.apiKey, formData, this.timeoutMs);
-      let b64 = extractBase64Image(data);
-      if (!b64 && data?.data?.[0]?.url) {
-        const imgResp = await fetch(data.data[0].url);
-        const buf = Buffer.from(await imgResp.arrayBuffer());
-        b64 = buf.toString('base64');
-      }
-      const url = saveGeneratedImage(b64, designId);
-      return { designUrl: url, finalPrompt };
+      const payload = extractImagePayload(data);
+      const designUrl = await materializeImage(payload, designId);
+      return { designUrl, finalPrompt };
     } catch (e) {
-      const retryable = e.name === 'AbortError' || (e.statusCode >= 500 && e.statusCode < 600) || e.statusCode === 429;
-      throw new AIProviderError({ provider: this.name, code: e.code || 'OMNIROUTE_ERROR', message: e.message, retryable, statusCode: e.statusCode || 500 });
+      // Exhausted quota / billing 429s are NOT retryable — fall through immediately.
+      const quota = isQuotaExhaustedError(e.statusCode, e.message);
+      const retryable = !quota && (e.name === 'AbortError' || (e.statusCode >= 500 && e.statusCode < 600) || e.statusCode === 429);
+      throw new AIProviderError({ provider: this.name, code: quota ? 'OMNIROUTE_QUOTA_EXHAUSTED' : (e.code || 'OMNIROUTE_ERROR'), message: e.message, retryable, statusCode: e.statusCode || 500 });
     }
   }
 }
 
-module.exports = { OmniRouteProvider };
+module.exports = { OmniRouteProvider, extractImagePayload, detectImageExt };

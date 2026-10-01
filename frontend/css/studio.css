@@ -443,7 +443,7 @@
   min-height: 110px;
   padding: var(--s-space-3) var(--s-space-4);
   padding-bottom: 48px;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   font-size: 0.88rem;
   line-height: 1.6;
   color: var(--s-text);
@@ -525,7 +525,7 @@
 .text-input {
   width: 100%;
   padding: var(--s-space-2) var(--s-space-3);
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   font-size: 0.85rem;
   color: var(--s-text);
   background: var(--s-surface);
@@ -633,7 +633,7 @@
   cursor: pointer;
   transition: all var(--s-transition);
   white-space: nowrap;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
 }
 
 .prompt-suggestion-chip:hover {
@@ -650,6 +650,38 @@
 /* ============================================================
    GENERATE BUTTON — Premium CTA
    ============================================================ */
+/* Credit remaining badge — shows how many AI generations the user has left */
+.credit-remaining-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--s-text-muted, #b8b2a7);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--s-radius-md, 10px);
+}
+.credit-remaining-badge[data-tone="low"] {
+  color: #d97706;
+  border-color: rgba(217, 119, 6, 0.35);
+}
+.credit-remaining-badge[data-tone="empty"] {
+  color: #dc2626;
+  border-color: rgba(220, 38, 38, 0.35);
+}
+.credit-remaining-icon { font-size: 0.9rem; }
+.credit-remaining-buy {
+  margin-left: auto;
+  font-weight: 700;
+  color: #d4a24e;
+  text-decoration: none;
+  border-bottom: 1px dashed rgba(212, 162, 78, 0.5);
+}
+.credit-remaining-buy:hover { color: #e8bc6f; }
+
 .generate-btn {
   display: flex;
   align-items: center;
@@ -657,7 +689,7 @@
   gap: 8px;
   width: 100%;
   padding: 14px 24px;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   font-size: 0.92rem;
   font-weight: 700;
   color: #f5f2eb;
@@ -1164,8 +1196,8 @@
   position: absolute;
   left: 0;
   top: 0;
-  font-family: 'Manrope', system-ui, sans-serif;
-  font-weight: 900;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
+  font-weight: 800;
   font-size: clamp(18px, 3.6vw, 34px);
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -1734,7 +1766,7 @@
   gap: 8px;
   width: 100%;
   padding: 12px 16px;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   font-size: 0.85rem;
   font-weight: 600;
   color: var(--s-text-secondary);
@@ -1773,7 +1805,7 @@
 }
 
 .actions-hint {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   line-height: 1.5;
@@ -2126,6 +2158,12 @@
   margin-bottom: var(--s-space-3);
 }
 
+/* Live payment confirmation tones — driven by the server, never by a timer.
+   Attribute selectors outrank the base class, so ordering does not matter. */
+.bank-transfer-status[data-tone="waiting"] { color: #d97706; }
+.bank-transfer-status[data-tone="paid"] { color: #16a34a; font-weight: 600; }
+.bank-transfer-status[data-tone="warn"] { color: #d97706; font-weight: 600; }
+
 .bank-transfer-row {
   display: flex;
   justify-content: space-between;
@@ -2314,7 +2352,7 @@
 .form-input {
   width: 100%;
   padding: 10px var(--s-space-3);
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   font-size: 0.85rem;
   color: var(--s-text);
   background: var(--s-surface);
@@ -2345,7 +2383,7 @@
   justify-content: center;
   gap: 8px;
   padding: 10px 20px;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   font-size: 0.85rem;
   font-weight: 600;
   border-radius: var(--s-radius);
@@ -2758,7 +2796,7 @@
 .onboarding-btn-prev,
 .onboarding-btn-next {
   padding: 8px 20px;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
   font-size: 0.84rem;
   font-weight: 600;
   border-radius: var(--s-radius);
@@ -2950,7 +2988,7 @@ html[data-trial="true"] .studio-right {
   color: #17140f;
   border-radius: var(--s-radius);
   padding: 28px 32px;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
 }
 
 .print-sheet-header {
@@ -2967,7 +3005,7 @@ html[data-trial="true"] .studio-right {
 
 .print-sheet-logo {
   font-size: 1.35rem;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 1px;
   color: #17140f;
 }
@@ -3135,7 +3173,7 @@ html[data-trial="true"] .studio-right {
 .studio-left .panel-section-header,
 .studio-right .panel-section-header,
 .placement-panel-header {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -3147,7 +3185,7 @@ html[data-trial="true"] .studio-right {
   border-bottom: 1px solid rgba(15, 12, 9, 0.12);
 }
 .toolbar-tab {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
   font-size: 0.72rem;
@@ -3162,7 +3200,7 @@ html[data-trial="true"] .studio-right {
   background: #0f0c09;
   border: 1px solid #0f0c09;
   border-radius: 2px;
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
@@ -3206,7 +3244,7 @@ html[data-trial="true"] .studio-right {
 .view-toggle-btn {
   border: 1px solid rgba(15, 12, 9, 0.2);
   border-radius: 2px;
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3233,7 +3271,7 @@ html[data-trial="true"] .studio-right {
   box-shadow: inset 2px 0 0 #c19856;
 }
 .layer-name { font-weight: 600; }
-.layer-meta { font-family: 'DM Mono', monospace; }
+.layer-meta { font-family: var(--font-mono); }
 .layer-btn {
   border: 1px solid rgba(15, 12, 9, 0.18);
   border-radius: 2px;
@@ -3252,7 +3290,7 @@ html[data-trial="true"] .studio-right {
 .action-btn {
   border: 1px solid rgba(15, 12, 9, 0.25);
   border-radius: 2px;
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3279,7 +3317,7 @@ html[data-trial="true"] .studio-right {
   border: 1px solid rgba(15, 12, 9, 0.14);
 }
 .viewer-side-badge {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.16em;
   background: #0f0c09;
   color: #f5f2eb;
@@ -3509,7 +3547,7 @@ html[data-trial="true"] .studio-right {
 }
 
 .field-count {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.06em;
   color: var(--s-text-muted);
@@ -3518,7 +3556,7 @@ html[data-trial="true"] .studio-right {
 }
 
 .field-error {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.78rem;
   line-height: 1.5;
   color: #a3341f;
@@ -3585,7 +3623,7 @@ html[data-trial="true"] .studio-right {
 .community-retry-btn {
   margin-top: 12px;
   padding: 10px 20px;
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 0.72rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -3928,7 +3966,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   gap: 8px;
 }
 .placement-slider-top label {
-  font-family: 'DM Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.64rem;
   font-weight: 500;
   text-transform: uppercase;
@@ -3936,7 +3974,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   color: var(--s-text-muted);
 }
 .slider-value {
-  font-family: 'DM Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.68rem;
   font-variant-numeric: tabular-nums;
   color: var(--s-accent-text);
@@ -4037,7 +4075,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
 
 /* Reset: nút con dấu nhỏ — ink trên paper, luôn nhìn thấy */
 .placement-reset-btn {
-  font-family: 'DM Mono', ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 0.64rem;
   font-weight: 500;
   text-transform: uppercase;
@@ -4142,7 +4180,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
 .text-style-label {
   flex: 0 0 auto;
   min-width: 44px;
-  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-family: var(--s-font-mono, var(--font-mono));
   font-size: 0.62rem;
   font-weight: 500;
   letter-spacing: 0.14em;
@@ -4158,7 +4196,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   width: 100%;
   height: 32px;
   padding: 0 26px 0 10px;
-  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-family: var(--s-font-mono, var(--font-mono));
   font-size: 0.72rem;
   letter-spacing: 0.04em;
   color: var(--s-text);
@@ -4310,7 +4348,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
 .text-style-row-slider .slider-value {
   flex: 0 0 38px;
   text-align: right;
-  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-family: var(--s-font-mono, var(--font-mono));
   font-size: 0.66rem;
   color: var(--s-accent-text, #7d5f2c);
 }
@@ -4357,7 +4395,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   bottom: 14px;
   transform: translateX(-50%) translateY(6px);
   padding: 6px 14px;
-  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-family: var(--s-font-mono, var(--font-mono));
   font-size: 0.7rem;
   letter-spacing: 0.08em;
   color: var(--s-text);
@@ -4475,7 +4513,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   pointer-events: none;
   transform: translate(-50%, calc(-100% - 10px));
   padding: 5px 11px;
-  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-family: var(--s-font-mono, var(--font-mono));
   font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -4546,7 +4584,7 @@ button, .toolbar-tab, .style-chip, .action-btn, .color-dot,
   min-width: 0;
   height: 24px;
   padding: 0 8px;
-  font-family: var(--s-font-mono, 'DM Mono', monospace);
+  font-family: var(--s-font-mono, var(--font-mono));
   font-size: 0.62rem;
   letter-spacing: 0.06em;
   color: var(--s-text-muted);
@@ -4795,4 +4833,154 @@ body.crop-mode-active #mockupDesign .mockup-print-text { pointer-events: none !i
 @media (max-width: 640px) {
   .saved-item { padding: 10px 8px; } /* touch target ≥ 40px */
   .saved-item-delete { width: 34px; height: 34px; }
+}
+
+/* ============================================================
+   PRO EDIT SUITE — nâng tầm thao tác ảnh/chữ (2026 refresh)
+   ============================================================ */
+
+/* Kéo file từ desktop thẳng lên áo: overlay phủ khung 3D với hướng dẫn rõ.
+   QUAN TRỌNG: [hidden] phải thắng display:flex của rule chính (author CSS
+   luôn thắng UA [hidden]{display:none}) — nếu không overlay hiển thị VĨNH
+   VIỄN che hết vùng chỉnh sửa (bug đã gặp). */
+.canvas-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: none; /* mặc định ẩn — chỉ hiện khi đang kéo file thật */
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 12, 16, 0.55);
+  backdrop-filter: blur(2px);
+  border: 2.5px dashed rgba(255, 128, 54, 0.9);
+  border-radius: 14px;
+  pointer-events: none; /* không chặn drop event của host */
+}
+
+.canvas-drop-overlay.is-active {
+  display: flex;
+}
+
+.canvas-drop-hint {
+  padding: 14px 22px;
+  border-radius: 12px;
+  background: rgba(15, 18, 24, 0.82);
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* Cursor feedback chuẩn editor: layer = grab, đang kéo = grabbing (nút canvas
+   đã có cursor:grab trước đây, giờ đồng bộ cả overlay layer). */
+.mockup-print-design { cursor: grab; }
+.mockup-print-design:active { cursor: grabbing; }
+.mockup-print-text { cursor: grab; }
+.mockup-print-text:active { cursor: grabbing; }
+
+/* Layer action mới (flip) — active state xanh lá nhẹ khi đang bật */
+.layer-btn.active[data-action='flip-h'],
+.layer-btn.active[data-action='flip-v'] {
+  border-color: rgba(74, 222, 128, 0.55);
+  background: rgba(74, 222, 128, 0.12);
+}
+
+/* ============================================================
+   ORDER REVIEW CTA — editorial print. Hairline frame, mono
+   microcopy, gold stars. Không emoji, không gradient.
+   ============================================================ */
+.order-review-cta {
+  margin-top: 20px;
+  padding: 18px 20px 16px;
+  border: 1px solid rgba(15, 12, 9, 0.16);
+  border-left: 2px solid var(--s-accent);
+  border-radius: 0;
+  background: rgba(193, 152, 86, 0.06);
+  animation: orderReviewIn 0.5s var(--s-ease, cubic-bezier(0.16, 1, 0.3, 1));
+}
+@keyframes orderReviewIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.order-review-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.order-review-stars {
+  display: inline-flex;
+  gap: 2px;
+}
+.order-review-star {
+  width: 32px;
+  height: 32px;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: rgba(15, 12, 9, 0.22);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.2s var(--s-ease, ease);
+}
+.order-review-star:hover { transform: translateY(-2px); }
+.order-review-star.on { color: var(--s-accent); }
+.order-review-star.preview { color: var(--s-accent); }
+.order-review-label {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: var(--s-accent-text);
+  transition: color 0.2s ease;
+}
+.order-review-label[data-level="1"],
+.order-review-label[data-level="2"] { color: #8a4b2f; }
+.order-review-label[data-level="3"] { color: #6d6358; }
+.order-review-label[data-level="4"],
+.order-review-label[data-level="5"] { color: var(--s-accent-text); }
+.order-review-text {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: #0f0c09;
+  background: #fffdf8;
+  border: 1px solid rgba(15, 12, 9, 0.16);
+  border-radius: 0;
+  resize: vertical;
+  min-height: 70px;
+  box-sizing: border-box;
+}
+.order-review-text:focus {
+  outline: none;
+  border-color: var(--s-accent);
+  box-shadow: 0 0 0 3px rgba(193, 152, 86, 0.16);
+}
+.order-review-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+.order-review-count {
+  font-size: 0.7rem;
+  color: #6d6358;
+  font-variant-numeric: tabular-nums;
+}
+.order-review-foot .btn {
+  border-radius: 0;
+}
+.order-review-done {
+  margin: 8px 0 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #3f6b46;
+}
+.order-review-foot .btn.success {
+  color: #fffdf8;
+  background: #3f6b46;
+  border-color: transparent;
 }

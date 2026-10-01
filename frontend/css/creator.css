@@ -256,7 +256,7 @@
 }
 
 .creator-name, .creator-section-title h2, .creator-empty h2 { font-family: 'Playfair Display', Georgia, serif; font-weight: 500; letter-spacing: -0.01em; }
-.creator-username, .creator-stat span, .creator-design-date { font-family: 'DM Mono', monospace; }
+.creator-username, .creator-stat span, .creator-design-date { font-family: var(--font-mono); }
 .creator-card { border-top: 2px solid #c19856; }
 .creator-avatar { color: #f5f2eb; }
 .creator-list-avatar { background: #0f0c09; color: #f5f2eb; }

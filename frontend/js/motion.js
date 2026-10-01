@@ -152,7 +152,11 @@
     els.forEach(function (el) {
       if (el.dataset.splitDone) return;
       el.dataset.splitDone = '1';
-      var text = el.textContent;
+      // Normalize whitespace: HTML indentation inside the element would
+      // otherwise produce empty .bk-word spans that break line wrapping
+      // (staircase layout on the hero title).
+      var text = el.textContent.trim().replace(/\s+/g, ' ');
+      if (!text) return;
       el.textContent = '';
       el.setAttribute('aria-label', text);
       var idx = 0;

@@ -10,11 +10,19 @@
   <title>Admin Dashboard - Blankup</title>
 
   <script src="js/guard-admin.js"></script>
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-latin.woff2" as="font" type="font/woff2" crossorigin />
 
-    <link rel="stylesheet" href="css/tokens.css?v=v5">
+
+    <link rel="stylesheet" href="css/tokens.css?v=v7">
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/admin.css?v=admin-pro-6">
-  <link rel="stylesheet" href="css/pro.css?v=v2">
+  <link rel="stylesheet" href="css/admin.css?v=admin-pro-12">
+    <link rel="stylesheet" href="css/pro.css?v=v2">
+    <script type="importmap">
+      {"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}
+    </script>
 </head>
 <body class="admin-theme bk-grain">
   <a class="bk-skip-link" href="#main-content">Bỏ qua đến nội dung chính</a>
@@ -80,6 +88,9 @@
         <button class="sidebar-link" data-tab="reports">
           <span class="menu-icon">08</span> <span>Báo cáo</span>
         </button>
+        <button class="sidebar-link" data-tab="reviews">
+          <span class="menu-icon">09</span> <span data-i18n="admin.reviews">Đánh giá</span>
+        </button>
       </nav>
     </aside>
 
@@ -91,7 +102,7 @@
             <h2 data-i18n="admin.overviewTitle">Tổng quan vận hành</h2>
             <span class="panel-subtitle" data-i18n="admin.overviewSubtitle">Theo dõi đơn hàng, doanh thu, thanh toán QR và hoạt động tạo mẫu.</span>
           </div>
-          <div class="panel-live-chip"><span></span> D? li?u realtime</div>
+          <div class="panel-live-chip"><span></span> Dữ liệu realtime</div>
         </div>
 
         <div class="ops-command-strip">
@@ -101,9 +112,9 @@
             <small data-i18n="admin.opsHint">Ưu tiên kiểm tra đơn QR, chuyển thiếu và đơn chờ xử lý.</small>
           </div>
           <div class="ops-strip-metrics">
-            <span><b id="ops-paid-revenue">0d</b data-i18n="admin.opsReceived">đã nhận</span>
-            <span><b id="ops-awaiting-money">0d</b data-i18n="admin.opsAwaiting">đang chờ</span>
-            <span><b id="ops-underpaid-count">0</b data-i18n="admin.opsUnderpaid">chuyển thiếu</span>
+            <span><b id="ops-paid-revenue">0đ</b> <span data-i18n="admin.opsReceived">đã nhận</span></span>
+            <span><b id="ops-awaiting-money">0đ</b> <span data-i18n="admin.opsAwaiting">đang chờ</span></span>
+            <span><b id="ops-underpaid-count">0</b> <span data-i18n="admin.opsUnderpaid">chuyển thiếu</span></span>
           </div>
         </div>
 
@@ -168,9 +179,19 @@
           <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">AI</div>
             <div class="stat-data">
-              <span class="stat-label">M?u AI gen</span>
+              <span class="stat-label">Mẫu AI gen</span>
               <h2 class="stat-value" id="stat-designs-count">0</h2>
             </div>
+          </div>
+
+          <div class="stat-card animate-fade-in rv">
+            <div class="stat-icon">★</div>
+            <div class="stat-data">
+              <span class="stat-label" data-i18n="admin.stat.reviews">Điểm đánh giá TB</span>
+              <h2 class="stat-value" id="stat-reviews-avg">—</h2>
+              <small class="stat-sub" id="stat-reviews-total">0 đánh giá</small>
+            </div>
+            <div class="card-glow"></div>
           </div>
         </div>
 
@@ -543,7 +564,105 @@
           </div>
         </div>
       </section>
+
+      <section class="tab-panel" id="panel-reviews">
+        <div class="panel-header">
+          <div>
+            <h2 data-i18n="admin.reviewsTitle">Đánh giá của khách hàng</h2>
+            <span class="panel-subtitle" data-i18n="admin.reviewsSubtitle">Feedback thật từ khách đã đặt hàng — hiển thị trên phần “Cộng đồng nói gì” ở trang chủ. Có thể ẩn hoặc xóa đánh giá không phù hợp.</span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center;">
+            <button class="btn btn-primary btn-sm" id="reviewsRefreshBtn" type="button">Làm mới</button>
+          </div>
+        </div>
+
+        <div class="stats-grid">
+          <div class="stat-card animate-fade-in rv">
+            <div class="stat-icon">★</div>
+            <div class="stat-data">
+              <span class="stat-label" data-i18n="admin.reviewsAvg">Điểm trung bình</span>
+              <h2 class="stat-value" id="review-stat-avg">—</h2>
+            </div>
+            <div class="card-glow"></div>
+          </div>
+          <div class="stat-card animate-fade-in rv">
+            <div class="stat-icon">💬</div>
+            <div class="stat-data">
+              <span class="stat-label" data-i18n="admin.reviewsTotal">Tổng đánh giá</span>
+              <h2 class="stat-value" id="review-stat-total">0</h2>
+            </div>
+            <div class="card-glow"></div>
+          </div>
+          <div class="stat-card animate-fade-in rv">
+            <div class="stat-icon">👁</div>
+            <div class="stat-data">
+              <span class="stat-label" data-i18n="admin.reviewsVisible">Đang hiển thị</span>
+              <h2 class="stat-value" id="review-stat-visible">0</h2>
+            </div>
+            <div class="card-glow"></div>
+          </div>
+        </div>
+
+        <div class="filter-bar admin-order-toolbar">
+          <div class="filter-group">
+            <button class="review-filter-pill active" data-review-filter="all" type="button">Tất cả</button>
+            <button class="review-filter-pill" data-review-filter="visible" type="button">Đang hiển thị</button>
+            <button class="review-filter-pill" data-review-filter="hidden" type="button">Đã ẩn</button>
+            <button class="review-filter-pill" data-review-filter="5" type="button">★5</button>
+            <button class="review-filter-pill" data-review-filter="4" type="button">★4</button>
+            <button class="review-filter-pill" data-review-filter="3" type="button">★3</button>
+            <button class="review-filter-pill" data-review-filter="low" type="button">★≤2</button>
+            <button class="review-filter-pill" data-review-filter="noreply" type="button">Chưa phản hồi</button>
+          </div>
+          <input class="admin-search" id="reviewSearchInput" type="search" aria-label="Tìm kiếm đánh giá" placeholder="Tìm mã đơn, khách hàng, nội dung...">
+          <span class="orders-result-count" id="reviewsResultCount">0 đánh giá</span>
+        </div>
+
+        <div class="dashboard-card">
+          <div class="table-container">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th data-i18n="admin.reviewsTh.rating">Sao</th>
+                  <th data-i18n="admin.th.orderId">Mã đơn</th>
+                  <th data-i18n="admin.th.customer">Khách hàng</th>
+                  <th data-i18n="admin.reviewsTh.comment">Nội dung</th>
+                  <th data-i18n="admin.reviewsTh.state">Hiển thị</th>
+                  <th data-i18n="admin.th.date">Ngày</th>
+                  <th data-i18n="admin.th.actions">Thao tác</th>
+                </tr>
+              </thead>
+              <tbody id="reviewsTableBody">
+                <tr><td colspan="7" class="orders-result-count">Đang tải đánh giá...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
     </main>
+  </div>
+
+  <!-- ====== REVIEW REPLY MODAL (phản hồi của shop) ====== -->
+  <div class="modal-overlay" id="reviewReplyModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(6px); align-items:center; justify-content:center; z-index:9999; padding:20px;">
+    <div class="modal design-preview-modal" style="max-width:480px; width:100%;">
+      <div class="modal-header">
+        <h3 class="modal-title">Phản hồi đánh giá</h3>
+        <button class="modal-close" id="reviewReplyClose">×</button>
+      </div>
+      <div class="modal-body">
+        <div id="reviewReplyMeta" class="review-reply-meta"></div>
+        <textarea id="reviewReplyText" class="review-reply-text" rows="4" maxlength="600" placeholder="Phản hồi của shop sẽ hiển thị công khai dưới đánh giá trên trang chủ..."></textarea>
+        <div class="review-reply-foot">
+          <span id="reviewReplyCount">0/600</span>
+          <span class="review-reply-note">Bỏ trống và lưu để gỡ phản hồi</span>
+        </div>
+        <div id="reviewReplyError" role="alert" style="display:none; color:#8a4b2f; font-size:0.8rem; margin-top:10px;"></div>
+      </div>
+      <div class="modal-footer" style="display:flex; gap:10px; justify-content:flex-end; padding:0 20px 20px;">
+        <button class="btn btn-secondary btn-sm" id="reviewReplyCancel" type="button">Hủy</button>
+        <button class="btn btn-primary btn-sm" id="reviewReplySave" type="button">Lưu phản hồi</button>
+      </div>
+    </div>
   </div>
 
   <div class="modal-overlay" id="designPreviewModal">
@@ -555,11 +674,21 @@
       <div class="modal-body">
         <div class="preview-layout">
           <div class="shirt-mockup-wrapper">
-            <div class="admin-preview-side-toggle" id="adminPreviewSideToggle">
-              <button class="admin-side-btn active" data-side="front" data-i18n="admin.side.front">Mặt trước</button>
-              <button class="admin-side-btn" data-side="back" data-i18n="admin.side.back">Mặt sau</button>
+            <div class="admin-preview-toolbar">
+              <div class="admin-view-toggle" id="adminViewToggle" title="Chế độ xem áo của khách">
+                <button type="button" class="admin-view-btn active" data-view="3d">3D</button>
+                <button type="button" class="admin-view-btn" data-view="2d">2D</button>
+              </div>
+              <div class="admin-preview-side-toggle" id="adminPreviewSideToggle">
+                <button class="admin-side-btn active" data-side="front" data-i18n="admin.side.front">Mặt trước</button>
+                <button class="admin-side-btn" data-side="back" data-i18n="admin.side.back">Mặt sau</button>
+              </div>
             </div>
-            <div class="mockup-container-admin" id="mockupContainerAdmin">
+            <div class="admin-3d-container" id="admin3dContainer">
+              <canvas id="tshirt360Canvas"></canvas>
+              <div class="admin-3d-note" id="admin3dNote" hidden></div>
+            </div>
+            <div class="mockup-container-admin" id="mockupContainerAdmin" style="display:none;">
               <img class="mockup-tshirt-admin" id="mockupTshirtAdmin" src="" alt="Mockup áo">
               <div class="mockup-design-overlay-admin" id="mockupDesignAdmin"></div>
             </div>
@@ -594,8 +723,11 @@
               <button type="button" class="btn btn-primary btn-sm" id="prev-status-save" data-i18n="admin.info.save">Lưu</button>
             </div>
             <div class="design-svg-source-wrapper">
-              <span class="info-label" data-i18n="admin.info.designFile">File thiết kế:</span>
-              <a href="" id="downloadSvgLink" class="btn btn-secondary btn-sm" download="blankup-custom.png" data-i18n="admin.actions.download">Tải file</a>
+              <span class="info-label" data-i18n="admin.info.designFile">File thiết kế (bản in):</span>
+              <div class="design-print-downloads">
+                <a href="" id="dlFrontLink" class="btn btn-secondary btn-sm" download>Tải mặt trước</a>
+                <a href="" id="dlBackLink" class="btn btn-secondary btn-sm" download>Tải mặt sau</a>
+              </div>
             </div>
           </div>
         </div>
@@ -947,10 +1079,10 @@
     </div>
   </div>
 
-  <script src="js/i18n.js"></script>
+  <script src="js/i18n.js?v=v3"></script>
   <script src="js/auth.js"></script>
   <script src="js/toast.js"></script>
-  <script src="js/motion.js?v=v5"></script>
-  <script src="js/pro.js?v=v2" defer></script><script src="js/admin.js?v=admin-pro-6"></script>
+  <script src="js/motion.js?v=v6"></script>
+  <script src="js/pro.js?v=v2" defer></script><script src="js/order-stream.js?v=v1"></script><script src="js/admin.js?v=admin-pro-13"></script>
 </body>
 </html>

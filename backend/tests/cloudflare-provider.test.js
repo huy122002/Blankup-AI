@@ -52,6 +52,10 @@ describe('MOCK: Cloudflare provider selection & availability', () => {
     process.env.AI_PROVIDER = 'cloudflare';
     process.env.OMNIROUTE_ENABLED = 'false';
     process.env.OPENAI_ENABLED = 'false';
+    // Must be disabled explicitly: provider.config loads the machine's backend/.env,
+    // so a leftover GEMINI_ENABLED=true would silently join the fallback order.
+    process.env.GEMINI_ENABLED = 'false';
+    process.env.GEMINI_API_KEY = '';
     process.env.CLOUDFLARE_ENABLED = 'true';
     const { getFallbackOrder } = require('../services/ai-providers/provider.config');
     expect(getFallbackOrder('cloudflare')).toEqual(['cloudflare']);
@@ -61,6 +65,8 @@ describe('MOCK: Cloudflare provider selection & availability', () => {
     delete process.env.AI_PROVIDER;
     delete process.env.OMNIROUTE_ENABLED;
     delete process.env.OPENAI_ENABLED;
+    delete process.env.GEMINI_ENABLED;
+    delete process.env.GEMINI_API_KEY;
     jest.resetModules();
   });
 
@@ -178,6 +184,8 @@ describe('MOCK: strict mode + secrets + existing providers', () => {
     process.env.AI_PROVIDER = 'cloudflare';
     process.env.OMNIROUTE_ENABLED = 'false';
     process.env.OPENAI_ENABLED = 'false';
+    process.env.GEMINI_ENABLED = 'false';
+    process.env.GEMINI_API_KEY = '';
     const { getFallbackOrder } = require('../services/ai-providers/provider.config');
     const order = getFallbackOrder('cloudflare');
     expect(order).toEqual(['cloudflare']);
@@ -187,6 +195,8 @@ describe('MOCK: strict mode + secrets + existing providers', () => {
     delete process.env.AI_PROVIDER;
     delete process.env.OMNIROUTE_ENABLED;
     delete process.env.OPENAI_ENABLED;
+    delete process.env.GEMINI_ENABLED;
+    delete process.env.GEMINI_API_KEY;
     jest.resetModules();
   });
 
@@ -204,6 +214,7 @@ describe('MOCK: strict mode + secrets + existing providers', () => {
     expect(fs.existsSync(path.join(__dirname, '../services/ai-providers/omniroute.provider.js'))).toBe(true);
     expect(fs.existsSync(path.join(__dirname, '../services/ai-providers/openai.provider.js'))).toBe(true);
     const cfgCode = fs.readFileSync(CONFIG_PATH, 'utf8');
-    expect(cfgCode).toContain("['omniroute', 'openai', 'cloudflare']");
+    // Priority list is the full four-provider order (google-gemini is last).
+    expect(cfgCode).toContain("['omniroute', 'openai', 'cloudflare', 'google-gemini']");
   });
 });

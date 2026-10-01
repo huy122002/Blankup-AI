@@ -52,10 +52,13 @@ function getConfig() {
 
   const openai = {
     name: 'openai',
-    enabled: boolEnv('OPENAI_ENABLED', boolEnv('OPENAI_API_KEY' !== '' ? 'true' : 'false', false) || !!strEnv('OPENAI_API_KEY', '')),
     // OPENAI_ENABLED defaults to true if OPENAI_API_KEY is set, unless explicitly false
+    enabled: boolEnv('OPENAI_ENABLED', !!strEnv('OPENAI_API_KEY', '')),
     apiKey: strEnv('OPENAI_API_KEY', ''),
+    // Text/chat model slot (prompt work). Image generation must use imageModel.
     model: strEnv('OPENAI_MODEL', strEnv('OPENAI_IMAGE_MODEL', 'gpt-image-2')),
+    imageModel: strEnv('OPENAI_IMAGE_MODEL', 'gpt-image-2'),
+    imageSize: strEnv('OPENAI_IMAGE_SIZE', '1024x1024'),
     timeoutMs: intEnv('OPENAI_TIMEOUT_MS', intEnv('OPENAI_TIMEOUT_MS', 90000)),
     maxRetries: intEnv('OPENAI_MAX_RETRIES', 1),
   };
@@ -73,6 +76,7 @@ function getConfig() {
     apiToken: strEnv('CLOUDFLARE_API_TOKEN', ''),
     imageModel: strEnv('CLOUDFLARE_IMAGE_MODEL', '@cf/black-forest-labs/flux-1-schnell'),
     promptModel: strEnv('CLOUDFLARE_PROMPT_MODEL', '@cf/meta/llama-3.1-8b-instruct'),
+    promptEnhancer: boolEnv('ENABLE_AI_PROMPT_ENHANCER', false),
     timeoutMs: intEnv('CLOUDFLARE_TIMEOUT_MS', 90000),
     maxRetries: intEnv('CLOUDFLARE_MAX_RETRIES', 1),
   };
@@ -100,7 +104,14 @@ function getConfig() {
   // Normal production behavior (fallback chain) is unchanged.
   const strictProvider = boolEnv('AI_PROVIDER_STRICT', false);
 
-  return { aiProvider, omniroute, openai, cloudflare, gemini, strictProvider };
+  // Whole-chain budget: caps total wall-clock time across every provider and
+  // retry so a deducted credit can never hang for many minutes before refund.
+  const chainTimeoutMs = intEnv('AI_CHAIN_TIMEOUT_MS', 180000);
+  // Delay before retrying the SAME provider after a retryable failure
+  // (rate limit / 5xx / timeout). Real jitter is applied on top by index.js.
+  const retryBackoffMs = intEnv('AI_RETRY_BACKOFF_MS', 1200);
+
+  return { aiProvider, omniroute, openai, cloudflare, gemini, strictProvider, chainTimeoutMs, retryBackoffMs };
 }
 
 function isProviderAvailable(name, cfg) {

@@ -19,6 +19,7 @@ function formatDate(dateStr) {
 const STATUS_META = {
   pending: { label: 'Đang xử lý', cls: 'status-pending' },
   awaiting_payment: { label: 'Chờ thanh toán', cls: 'status-pending' },
+  paid: { label: 'Đã thanh toán', cls: 'status-paid' },
   processing: { label: 'Đang sản xuất', cls: 'status-pending' },
   shipped: { label: 'Đã gửi hàng', cls: 'status-pending' },
   delivered: { label: 'Đã giao hàng', cls: 'status-pending' },
@@ -53,7 +54,18 @@ document.addEventListener('DOMContentLoaded', () => {
   let ordersLoaded = false;
   document.querySelector('.account-tab[data-tab="orders"]')?.addEventListener('click', () => {
     if (!ordersLoaded) { ordersLoaded = true; loadOrders(); }
+    startOrdersAutoRefresh();
   });
+
+  // Realtime: a payment confirmed by SePay (or a status change by an admin)
+  // shows up here on its own. The 8s poll inside startOrdersAutoRefresh() is
+  // the safety net for tabs where the stream is unavailable.
+  if (typeof window.watchOrderStream === 'function') {
+    try {
+      window.watchOrderStream({ onEvent: () => { if (!document.hidden) loadOrders(); } });
+    } catch (err) { /* polling still covers it */ }
+  }
+  startOrdersAutoRefresh();
   let creditsLoaded = false;
   document.querySelector('.account-tab[data-tab="credits"]')?.addEventListener('click', () => {
     renderCreditsSummary();
@@ -161,10 +173,21 @@ function initPasswordForm() {
   });
 }
 
+let myReviewsByOrder = {}; // orderId -> review của chính user
+
 async function loadOrders() {
   const container = document.getElementById('ordersListContainer');
   try {
     const response = await fetch(`${API_BASE}/orders/me`, { headers: auth.getAuthHeaders() });
+    // Đánh giá của chính user — để hiển thị trạng thái “đã đánh giá” trên từng đơn.
+    try {
+      const mineResp = await fetch(`${API_BASE}/reviews/mine`, { headers: auth.getAuthHeaders() });
+      if (mineResp.ok) {
+        const mine = await mineResp.json();
+        myReviewsByOrder = {};
+        (mine.data || []).forEach(r => { myReviewsByOrder[r.orderId] = r; });
+      }
+    } catch { /* đánh giá là tính năng phụ — không chặn danh sách đơn */ }
     const result = await response.json();
     if (!response.ok || result.success === false) throw new Error(result.error || 'Không thể tải đơn hàng.');
     const orders = result.data || []; const summary = result.summary || {};
@@ -173,13 +196,41 @@ async function loadOrders() {
     document.getElementById('summaryPending').textContent = summary.pendingOrders || 0;
     document.getElementById('summaryCompleted').textContent = summary.completedOrders || 0;
     document.getElementById('summarySpend').textContent = formatMoney(summary.totalSpend || 0);
-    if (!orders.length) { container.innerHTML = `<div class="account-empty account-empty-hero"><svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.38 3.46 16 2 12 3.46 8 2 3.62 3.46a2 2 0 0 0-1.34 1.89v13.3a2 2 0 0 0 2.66 1.89L8 19l4-1.46L16 19l4.38-1.46a2 2 0 0 0 1.34-1.89V5.35a2 2 0 0 0-1.34-1.89z"/><circle cx="12" cy="10" r="1.2" fill="currentColor" stroke="none"/><path d="M10 15.5c1.2.7 2.8.7 4 0" stroke-width="1.2"/></svg><p class="account-empty-title">Chưa có đơn hàng nào</p><p class="account-empty-desc">Mọi đơn hàng bạn đặt sẽ xuất hiện ở đây. Hãy tạo chiếc áo đầu tiên của riêng bạn ngay bây giờ!</p><a href="studio.html" class="account-empty-cta">Bắt đầu thiết kế chiếc áo đầu tiên →</a></div>`; return; }
+    container.dataset.emptyRendered = orders.length ? '0' : '1';
+    if (!orders.length) { if (container.dataset.emptyDone === '1') return; container.dataset.emptyDone = '1'; container.innerHTML = `<div class="account-empty account-empty-hero"><svg width="96" height="96" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.38 3.46 16 2 12 3.46 8 2 3.62 3.46a2 2 0 0 0-1.34 1.89v13.3a2 2 0 0 0 2.66 1.89L8 19l4-1.46L16 19l4.38-1.46a2 2 0 0 0 1.34-1.89V5.35a2 2 0 0 0-1.34-1.89z"/><circle cx="12" cy="10" r="1.2" fill="currentColor" stroke="none"/><path d="M10 15.5c1.2.7 2.8.7 4 0" stroke-width="1.2"/></svg><p class="account-empty-title">Chưa có đơn hàng nào</p><p class="account-empty-desc">Mọi đơn hàng bạn đặt sẽ xuất hiện ở đây. Hãy tạo chiếc áo đầu tiên của riêng bạn ngay bây giờ!</p><a href="studio.html" class="account-empty-cta">Bắt đầu thiết kế chiếc áo đầu tiên →</a></div>`; return; }
     container.innerHTML = orders.map(order => {
       const status = STATUS_META[order.status] || { label: order.status || 'N/A', cls: '' };
       const total = Number(order.total || (order.price || 0) * (order.quantity || 1));
-      return `<article class="account-order-card"><div class="account-order-thumb">${order.designUrl ? `<img src="${escapeHtml(order.designUrl)}" alt="Thiết kế đơn ${escapeHtml(String(order.orderId || '').slice(0, 40))}" loading="lazy">` : ''}</div><div class="account-order-body"><div class="account-order-top"><div><span class="account-order-id">#${escapeHtml(String(order.orderId || '').slice(0, 40))}</span> <span class="account-badge ${status.cls}">${escapeHtml(status.label)}</span></div><div class="account-order-price">${formatMoney(total)}</div></div><div class="account-order-meta">${escapeHtml(String(order.productType || 'Áo thun').slice(0, 60))} · Size ${escapeHtml(String(order.size || '—').slice(0, 10))} · SL ${Number(order.quantity || 1)} · ${formatDate(order.createdAt)}</div></div></article>`;
+      const myRev = myReviewsByOrder[String(order.orderId || '')];
+      const reviewHtml = String(order.status) === 'cancelled'
+        ? ''
+        : (myRev
+          ? `<div class="account-order-review"><span class="account-review-stars" title="Đã đánh giá">${'★'.repeat(Number(myRev.rating) || 0)}${'☆'.repeat(5 - (Number(myRev.rating) || 0))}</span><span class="account-reviewed-note">Đã đánh giá</span></div>`
+          : `<div class="account-order-review"><button type="button" class="account-review-btn" data-review-order="${escapeAttr(String(order.orderId || ''))}">Đánh giá đơn này</button></div>`);
+      return `<article class="account-order-card"><div class="account-order-thumb">${order.designUrl ? `<img src="${escapeHtml(order.designUrl)}" alt="Thiết kế đơn ${escapeHtml(String(order.orderId || '').slice(0, 40))}" loading="lazy">` : ''}</div><div class="account-order-body"><div class="account-order-top"><div><span class="account-order-id">#${escapeHtml(String(order.orderId || '').slice(0, 40))}</span> <span class="account-badge ${status.cls}">${escapeHtml(status.label)}</span></div><div class="account-order-price">${formatMoney(total)}</div></div><div class="account-order-meta">${escapeHtml(String(order.productType || 'Áo thun').slice(0, 60))} · Size ${escapeHtml(String(order.size || '—').slice(0, 10))} · SL ${Number(order.quantity || 1)} · ${formatDate(order.createdAt)}</div>${reviewHtml}</div></article>`;
     }).join('');
   } catch (err) { container.innerHTML = `<div class="account-empty">Không thể tải đơn hàng. Vui lòng thử lại sau.</div>`; showToast(err.message || 'Không thể tải đơn hàng.', 'error'); }
+}
+
+/* ---------- Orders: realtime refresh ----------
+   Payment/status changes made by the SePay webhook or by an admin appear here
+   without a manual reload. Rendering is signature-guarded so the list (and the
+   customer's scroll position) stays untouched while nothing has changed. */
+let ordersSignature = '';
+let ordersRefreshTimer = null;
+
+function stopOrdersAutoRefresh() {
+  if (ordersRefreshTimer) { clearInterval(ordersRefreshTimer); ordersRefreshTimer = null; }
+}
+
+function startOrdersAutoRefresh() {
+  stopOrdersAutoRefresh();
+  ordersRefreshTimer = setInterval(() => {
+    if (document.hidden) return;                      // no work in a hidden tab
+    const tab = document.querySelector('.account-tab[data-tab="orders"]');
+    if (tab && !tab.classList.contains('active')) return; // only while the tab is open
+    loadOrders();
+  }, 8000);
 }
 
 /* ---------- Credits AI ---------- */
@@ -623,3 +674,114 @@ function initPlanPurchaseModal() {
     stopPolling();
   });
 }
+
+/* ---------- Review modal (đánh giá đơn hàng) ----------
+   Khách đánh giá sau khi đặt hàng: 1–5 sao + nhận xét ngắn.
+   Review hiển thị công khai trên phần “Cộng đồng nói gì” (trang chủ). */
+let reviewModalOrder = null;
+let reviewModalRating = 5;
+let reviewModalPreview = 0; // 0 = không hover, >0 = đang xem trước N sao
+
+const RATING_LABELS = { 1: 'Không hài lòng', 2: 'Cần cải thiện', 3: 'Bình thường', 4: 'Rất tốt', 5: 'Tuyệt vời' };
+
+function renderReviewStars() {
+  const wrap = document.getElementById('reviewStars');
+  if (!wrap) return;
+  const shown = reviewModalPreview || reviewModalRating;
+  wrap.innerHTML = [1, 2, 3, 4, 5].map(n =>
+    `<button type="button" class="review-star-btn${n <= shown ? ' on' : ''}${reviewModalPreview && n <= reviewModalPreview ? ' preview' : ''}" data-star="${n}" role="radio" aria-checked="${n === reviewModalRating}" aria-label="${n} sao">★</button>`
+  ).join('');
+  const label = document.getElementById('reviewRatingLabel');
+  if (label) {
+    label.textContent = RATING_LABELS[shown] || '';
+    label.dataset.level = String(shown);
+  }
+}
+
+function openReviewModal(orderId) {
+  reviewModalOrder = orderId;
+  reviewModalRating = 5;
+  const modal = document.getElementById('reviewModal');
+  if (!modal) return;
+  const line = document.getElementById('reviewOrderLine');
+  if (line) line.textContent = 'Đơn hàng #' + String(orderId).slice(0, 40);
+  const ta = document.getElementById('reviewComment');
+  if (ta) ta.value = '';
+  const count = document.getElementById('reviewCount');
+  if (count) count.textContent = '0/600';
+  const err = document.getElementById('reviewError');
+  if (err) err.style.display = 'none';
+  renderReviewStars();
+  modal.style.display = 'flex';
+}
+
+function closeReviewModal() {
+  const modal = document.getElementById('reviewModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function initReviewModal() {
+  const modal = document.getElementById('reviewModal');
+  if (!modal) return;
+
+  const starsWrap = document.getElementById('reviewStars');
+  starsWrap?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-star]');
+    if (!btn) return;
+    reviewModalRating = Number(btn.dataset.star) || 5;
+    reviewModalPreview = 0;
+    renderReviewStars();
+  });
+  // Hover xem trước số sao — rời chuột trở lại đúng mức đã chọn.
+  starsWrap?.addEventListener('mouseover', (e) => {
+    const btn = e.target.closest('[data-star]');
+    if (!btn) return;
+    reviewModalPreview = Number(btn.dataset.star) || 0;
+    renderReviewStars();
+  });
+  starsWrap?.addEventListener('mouseleave', () => {
+    if (reviewModalPreview) { reviewModalPreview = 0; renderReviewStars(); }
+  });
+
+  document.getElementById('reviewComment')?.addEventListener('input', (e) => {
+    const count = document.getElementById('reviewCount');
+    if (count) count.textContent = `${e.target.value.length}/600`;
+  });
+
+  document.getElementById('reviewModalClose')?.addEventListener('click', closeReviewModal);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeReviewModal(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.style.display === 'flex') closeReviewModal(); });
+
+  document.getElementById('reviewSubmitBtn')?.addEventListener('click', async () => {
+    if (!reviewModalOrder) return;
+    const btn = document.getElementById('reviewSubmitBtn');
+    const err = document.getElementById('reviewError');
+    if (err) err.style.display = 'none';
+    btn.disabled = true; btn.textContent = '⏳ Đang gửi...'; btn.classList.add('loading');
+    try {
+      const comment = (document.getElementById('reviewComment')?.value || '').trim();
+      const resp = await fetch(`${API_BASE}/reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...auth.getAuthHeaders() },
+        body: JSON.stringify({ orderId: reviewModalOrder, rating: reviewModalRating, comment: comment || undefined }),
+      });
+      const result = await resp.json().catch(() => ({}));
+      if (!resp.ok || result.success === false) throw new Error(result.error || 'Không thể gửi đánh giá.');
+      showToast(result.message || 'Cảm ơn bạn đã đánh giá!', 'success');
+      btn.textContent = '✓ Cảm ơn bạn!'; btn.classList.add('success');
+      myReviewsByOrder[reviewModalOrder] = result.data;
+      await loadOrders();
+      setTimeout(closeReviewModal, 700);
+    } catch (e2) {
+      if (err) { err.textContent = e2.message || 'Không thể gửi đánh giá.'; err.style.display = 'block'; }
+      btn.disabled = false; btn.textContent = 'Gửi đánh giá'; btn.classList.remove('loading');
+    }
+  });
+}
+
+// Event delegation: nút “⭐ Đánh giá đơn này” trên từng card đơn hàng.
+document.getElementById('ordersListContainer')?.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-review-order]');
+  if (btn) openReviewModal(btn.dataset.reviewOrder);
+});
+initReviewModal();

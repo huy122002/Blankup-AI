@@ -5,6 +5,7 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { withLock } = require('../utils/fileStore');
 const { validateVoucherForPlan } = require('../services/voucher.service');
 const idemStore = require('../services/purchase-idempotency.service');
+const { normalizeSepayPayload, confirmOrderFromSepay } = require('../services/sepay.service');
 
 const BANK_TRANSFER_INFO = {
   bankId: '970422',
@@ -562,14 +563,39 @@ router.post('/webhook/sepay', async (req, res) => {
       }
     }
 
-    const { transactionId, amount, content, bankAccount, status } = req.body;
+    // Orders and AI plans may share ONE SePay webhook URL. Always give the order
+    // reconciler a chance at this transfer too — isolated in try/catch so it can
+    // never affect credit issuance below. Idempotent, so double handling is safe.
+    try {
+      const orderOutcome = await confirmOrderFromSepay(normalizeSepayPayload(req.body || {}));
+      if (orderOutcome.action === 'paid') {
+        console.log(`[AI-Plans] SePay also confirmed ORDER ${orderOutcome.order.orderId}`);
+      }
+    } catch (orderErr) {
+      console.warn('[AI-Plans] Order reconciliation from SePay failed:', orderErr.message);
+    }
 
-    console.log(`[AI-Plans] Sepay webhook received:`, { transactionId, amount, content, bankAccount, status });
+    // SePay sends the documented shape (transferAmount, content with bank noise
+    // like "... MBVCB.328471"); legacy tools may send the simplified shape.
+    // normalizeSepayPayload accepts both and extracts the amount consistently.
+    const sepay = normalizeSepayPayload(req.body || {});
+    const amount = sepay.amount;
+    const content = sepay.content || req.body.content || '';
+    const transactionId = sepay.transactionId;
 
-    const match = content?.match(/^BLANKUP-AI-(.+)$/i);
+    console.log(`[AI-Plans] Sepay webhook received:`, { transactionId, amount, content });
+
+    // SePay may append bank noise (reference code) to the memo and change the
+    // case/spacing of the code part, so match the transfer prefix anywhere in
+    // the content, not only at the start.
+    const match = content?.match(/BLANKUP-AI-[A-Z0-9-]+/i);
     if (!match) {
       return res.json({ success: true, message: 'Not a Blankup transaction' });
     }
+    // Canonical lookup key: uppercase + strip non-alphanumerics so
+    // "BLANKUP-AI-PRO-AB12CD" matches "ck toi blankup-ai-pro ab12cd MBVCB.328471".
+    const transferContent = match[0].toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const displayContent = match[0].toUpperCase();
 
     const pool = getPool();
 
@@ -578,7 +604,8 @@ router.post('/webhook/sepay', async (req, res) => {
       await transaction.begin();
 
       const markResult = await transaction.request()
-        .input('transferContent', sql.NVarChar, content)
+        .input('transferContent', sql.NVarChar, transferContent)
+        .input('transferContentDisplay', sql.NVarChar, displayContent)
         .input('transactionId', sql.NVarChar, transactionId || null)
         .query(`
           UPDATE AiPlanPurchases
@@ -587,15 +614,17 @@ router.post('/webhook/sepay', async (req, res) => {
               paymentCheckedAt = GETDATE(),
               paidAt = GETDATE()
           OUTPUT inserted.*
-          WHERE transferContent = @transferContent
+          WHERE (REPLACE(UPPER(transferContent), '-', '') = @transferContent
+             OR UPPER(transferContent) = @transferContentDisplay)
             AND paymentStatus = 'pending'
         `);
 
       if (markResult.recordset.length === 0) {
         await transaction.rollback();
         const existing = await pool.request()
-          .input('transferContent', sql.NVarChar, content)
-          .query('SELECT paymentStatus FROM AiPlanPurchases WHERE transferContent = @transferContent');
+          .input('transferContent', sql.NVarChar, transferContent)
+          .input('transferContentDisplay', sql.NVarChar, displayContent)
+          .query("SELECT paymentStatus FROM AiPlanPurchases WHERE REPLACE(UPPER(transferContent), '-', '') = @transferContent OR UPPER(transferContent) = @transferContentDisplay");
         if (existing.recordset.length === 0) {
           return res.json({ success: true, message: 'No matching purchase' });
         }

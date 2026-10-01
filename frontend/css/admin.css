@@ -13,15 +13,15 @@
   --color-gold-text: #7d5f2c; /* Darker gold for text on light backgrounds - meets WCAG AA 4.5:1 */
   --color-gold-glow: rgba(193, 152, 86, 0.1);
   --font-display: 'Playfair Display', Georgia, serif;
-  --font-body: 'Manrope', system-ui, sans-serif;
-  --font-mono: 'DM Mono', monospace;
+  --font-body: 'Be Vietnam Pro', system-ui, sans-serif;
+  --font-mono: var(--font-mono);
 }
 
 body.admin-theme {
   background-color: var(--admin-bg-workspace) !important;
   color: #3f3830 !important;
   min-height: 100vh;
-  font-family: 'Manrope', system-ui, sans-serif;
+  font-family: 'Be Vietnam Pro', system-ui, sans-serif;
 
   /* Override global variables for light theme */
   --bg-primary: #f5f2eb;
@@ -230,7 +230,7 @@ font-size: 0.75rem;
 
 .stat-icon {
   font-size: 12px;
-  font-weight: 900;
+  font-weight: 800;
   background: rgba(0, 0, 0, 0.02);
   width: 50px;
   height: 50px;
@@ -753,6 +753,119 @@ font-size: 0.75rem;
   padding: 10px;
 }
 
+/* ---- Order preview toolbar (view toggle + side toggle) ---- */
+.admin-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-view-toggle {
+  display: inline-flex;
+  background: #efe9dc;
+  border-radius: 9px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.admin-view-btn {
+  border: none;
+  background: transparent;
+  padding: 5px 14px;
+  border-radius: 7px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #837b6b;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.admin-view-btn:hover {
+  color: #4a4436;
+}
+
+.admin-view-btn.active {
+  background: #ffffff;
+  color: #1f1a10;
+  box-shadow: 0 1px 3px rgba(30, 25, 15, 0.18);
+}
+
+.admin-preview-toolbar .admin-preview-side-toggle {
+  margin: 0;
+}
+
+/* ---- Real 3D viewer inside order preview modal ---- */
+.admin-3d-container {
+  position: relative;
+  width: 100%;
+  min-height: 380px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: radial-gradient(circle at 50% 42%, #ffffff 0%, #f1ede3 78%);
+  cursor: grab;
+}
+
+.admin-3d-container:active {
+  cursor: grabbing;
+}
+
+.admin-3d-container canvas {
+  display: block;
+  width: 100%;
+  height: 380px;
+  touch-action: none;
+}
+
+.admin-3d-container.viewer-loading {
+  min-height: 380px;
+}
+
+.admin-3d-container.viewer-loading::before {
+  content: "Đang tải mẫu 3D...";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  color: #837b6b;
+  background: #faf7f1;
+}
+
+.admin-3d-container.garment-unavailable::before {
+  content: "";
+  display: none;
+}
+
+.admin-3d-note {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(23, 20, 15, 0.78);
+  color: #f7f3ea;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: center;
+  pointer-events: none;
+}
+
+.design-print-downloads {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.design-print-downloads .btn[hidden],
+.design-print-downloads .btn.disabled {
+  display: none;
+}
+
 .shirt-mockup-wrapper {
   background: #faf7f1;
   border-radius: 12px;
@@ -937,7 +1050,7 @@ font-size: 0.75rem;
 
 .money-cell {
   color: #17140f !important;
-  font-weight: 900;
+  font-weight: 700; font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -1226,7 +1339,7 @@ body.admin-theme .panel-subtitle,
 body.admin-theme .stat-label,
 body.admin-theme .sidebar-link,
 body.admin-theme .vf-label {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.08em;
 }
 body.admin-theme .sidebar-link.active {
@@ -1250,7 +1363,7 @@ body.admin-theme .dashboard-card {
   border: 1px solid rgba(15, 12, 9, 0.14);
 }
 body.admin-theme table th {
-font-family: 'DM Mono', monospace;
+font-family: var(--font-mono);
 font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -1261,7 +1374,7 @@ body.admin-theme .btn-primary {
 background: #0f0c09;
 border-color: #0f0c09;
 border-radius: 2px;
-font-family: 'DM Mono', monospace;
+font-family: var(--font-mono);
 font-size: 0.75rem;
   letter-spacing: 0.1em;
   text-transform: uppercase;
@@ -1275,7 +1388,7 @@ body.admin-theme .admin-badge {
   border: 1px solid var(--color-gold);
   color: var(--color-gold-text);
   border-radius: 2px;
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
 }
 @media (prefers-reduced-motion: reduce) {
   body.admin-theme .stat-card { transition: none; }
@@ -1306,4 +1419,124 @@ body.admin-theme .admin-badge {
   --line-strong: rgba(23, 20, 15, 0.26);
   background-color: #faf7f1 !important;
   color: #423d34 !important;
+
+/* ============================================================
+   REVIEWS — editorial print. Hairline filters, tabular numerals,
+   one gold accent. Không pill gradient, không emoji gradient.
+   ============================================================ */
+.review-filter-pill {
+  padding: 6px 2px;
+  margin-right: 18px;
+  font-family: var(--font-body, 'Be Vietnam Pro', sans-serif);
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #6d6358;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.review-filter-pill:hover {
+  color: #0f0c09;
+  background: none;
+  border-color: rgba(15, 12, 9, 0.3);
+  box-shadow: none;
+}
+.review-filter-pill.active {
+  color: #0f0c09;
+  background: none;
+  border-color: var(--color-gold);
+  box-shadow: none;
+}
+.review-filter-pill:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 3px;
+}
+.admin-review-reply {
+  margin-top: 7px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--color-gold);
+  border-radius: 0;
+  background: none;
+  font-size: 0.8rem;
+  color: #3f3830;
+}
+.admin-review-reply-mark {
+  display: none;
+}
+.reviews-refresh-btn-ghost,
+#reviewsRefreshBtn {
+  background: none;
+  border: 1px solid rgba(15, 12, 9, 0.24);
+  border-radius: 0;
+  color: #3f3830;
+}
+#reviewsRefreshBtn:hover { border-color: var(--color-gold); color: var(--color-gold-text); }
+.stat-sub { color: #6d6358; }
+
+/* --- Hành động dạng text-link trong bảng đánh giá --- */
+.review-actions { gap: 14px; }
+.review-action-link {
+  padding: 0 0 2px;
+  font-family: var(--font-body, 'Be Vietnam Pro', sans-serif);
+  font-size: 0.74rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--color-gold-text);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.review-action-link:hover {
+  color: #4a3a1c;
+  border-bottom-color: rgba(163, 124, 58, 0.6);
+  background: none;
+}
+.review-action-danger { color: #8a4b2f; }
+.review-action-danger:hover {
+  color: #6d3419;
+  border-bottom-color: rgba(138, 75, 47, 0.55);
+}
+
+/* --- Reply modal: mono meta, hairline textarea --- */
+.review-reply-meta {
+  font-size: 0.8rem;
+  color: #6d6358;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(15, 12, 9, 0.1);
+}
+.review-reply-text {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px;
+  border: 1px solid rgba(15, 12, 9, 0.18);
+  border-radius: 0;
+  background: #fffdf8;
+  color: #0f0c09;
+  font-family: var(--font-body, 'Be Vietnam Pro', sans-serif);
+  font-size: 0.9rem;
+  resize: vertical;
+}
+.review-reply-text:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px var(--color-gold-glow);
+}
+.review-reply-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+}
+.review-reply-foot span {
+  font-size: 0.7rem;
+  color: #6d6358;
+  font-variant-numeric: tabular-nums;
 }

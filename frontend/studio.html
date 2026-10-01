@@ -9,9 +9,14 @@
   <meta name="theme-color" content="#f5f2eb">
   <title>AI Design Studio — Blankup</title>
   <meta name="description" content="Tạo thiết kế áo thun độc nhất với AI. Viết prompt hoặc upload ảnh để AI thiết kế cho bạn.">
-    <link rel="stylesheet" href="css/tokens.css?v=v5">
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-latin.woff2" as="font" type="font/woff2" crossorigin />
+
+    <link rel="stylesheet" href="css/tokens.css?v=v7">
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/studio.css?v=v59">
+  <link rel="stylesheet" href="css/studio.css?v=v68">
   <link rel="stylesheet" href="css/pro.css?v=v2">
 </head>
 <body class="bk-grain">
@@ -156,6 +161,11 @@
               aria-describedby="customTextHint" placeholder="VD: BLANKUP, tên riêng, câu slogan...">
             <small class="field-hint" id="customTextHint">Tối đa 60 ký tự để bản in không bị tràn. Hỗ trợ tiếng Việt, emoji.</small>
 
+            <div class="credit-remaining-badge" id="creditRemainingBadge" hidden>
+              <span class="credit-remaining-icon">⚡</span>
+              <span id="creditRemainingText">Còn 0 lượt tạo</span>
+              <a class="credit-remaining-buy" id="creditRemainingBuy" href="pricing.html">Mua thêm</a>
+            </div>
             <button class="generate-btn magnetic" id="generatePromptBtn">
               <span class="generate-btn-spinner"></span>
               <svg class="generate-btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -793,6 +803,21 @@
             <div class="bank-transfer-row"><span>Số tài khoản</span><strong id="successAccountNumber">0123456789</strong></div>
             <div class="bank-transfer-row"><span>Nội dung</span><strong id="successTransferContent">BLANKUP</strong></div>
           </div>
+
+          <!-- Đánh giá đơn hàng — mở ngay khi thanh toán được xác nhận (kể cả khách) -->
+          <div class="order-review-cta" id="orderReviewCta" style="display:none;">
+            <div class="order-review-head">
+              <div class="order-review-stars" id="orderReviewStars" role="radiogroup" aria-label="Chọn số sao đánh giá"></div>
+              <span class="order-review-label" id="orderReviewLabel" data-level="5">Tuyệt vời! 🤩</span>
+            </div>
+            <textarea class="order-review-text" id="orderReviewText" rows="3" maxlength="600" placeholder="Chia sẻ trải nghiệm đặt hàng của bạn (không bắt buộc)..."></textarea>
+            <div class="order-review-foot">
+              <span class="order-review-count" id="orderReviewCount">0/600</span>
+              <button class="btn btn-primary btn-sm" id="orderReviewSubmitBtn" type="button">Gửi đánh giá</button>
+            </div>
+            <p class="order-review-done" id="orderReviewDone" style="display:none;">✓ Cảm ơn bạn! Đánh giá đã được ghi nhận và sẽ hiển thị trên trang chủ.</p>
+          </div>
+
           <button class="btn btn-primary" id="orderCloseBtn" data-i18n="order.close">Đóng</button>
         </div>
       </div>
@@ -904,7 +929,7 @@
   </div>
 
   <!-- Scripts -->
-  <script src="js/i18n.js"></script>
+  <script src="js/i18n.js?v=v3"></script>
   <script src="js/auth.js"></script>
   <script src="js/toast.js"></script>
   <script>
@@ -938,8 +963,8 @@
     {"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/examples/jsm/"}}
   </script>
   <script type="module" src="js/tshirt-360.js?v=30"></script>
-  <script src="js/motion.js?v=v5"></script>
+  <script src="js/motion.js?v=v6"></script>
   <script src="js/pro.js?v=v2" defer></script>
-  <script src="js/studio.js?v=v59"></script>
+  <script src="js/studio.js?v=v68"></script>
 </body>
 </html>

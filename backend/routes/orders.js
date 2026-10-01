@@ -22,6 +22,8 @@ function _orderRateLimit(req, res, next) {
   return next();
 }
 const { getPool, sql } = require('../db');
+const { publishOrderEvent, subscribe } = require('../services/order-events');
+const { safeEqual, getBankInfo } = require('../services/sepay.service');
 
 const router = express.Router();
 const ordersFilePath = path.join(__dirname, '../data/orders.json');
@@ -84,7 +86,8 @@ router.get('/', authenticate, (req, res) => {
       pagination = { page, limit, total: sortedOrders.length, totalPages: Math.ceil(sortedOrders.length / limit) };
     }
 
-    res.json({ success: true, count: data.length, total: sortedOrders.length, data, ...(pagination ? { pagination } : {}) });
+    const safeData = data.map(stripOrderSecrets);
+    res.json({ success: true, count: safeData.length, total: sortedOrders.length, data: safeData, ...(pagination ? { pagination } : {}) });
   } catch (err) {
     console.error('[Orders] Error fetching orders:', err.message);
     res.status(500).json({ success: false, error: 'Failed to fetch orders' });
@@ -92,6 +95,36 @@ router.get('/', authenticate, (req, res) => {
 });
 
 const VALID_PRODUCT_TYPES = new Set(['tshirt', 'oversize', 'polo', 'hoodie']);
+
+// Payment methods that expect money to arrive remotely (VNPay redirect, or a
+// bank transfer confirmed by the SePay webhook). Both start in awaiting_payment.
+const ONLINE_PAYMENT_METHODS = new Set(['VNPAY', 'BANK_TRANSFER']);
+
+// The per-order watch token is a checkout convenience for guests, never part of
+// a browsable order record.
+function stripOrderSecrets(order) {
+  if (!order) return order;
+  const { paymentWatchToken, ...rest } = order;
+  return rest;
+}
+
+// Uniform create/read payload for the checkout screen.
+function orderPaymentResponse(order, message, extra = {}) {
+  const method = order.paymentMethod || order.payment || 'COD';
+  return {
+    success: true,
+    orderId: order.orderId,
+    transferContent: order.transferContent || `BLANKUP-${order.orderId}`,
+    payment: method,
+    paymentStatus: order.paymentStatus || null,
+    status: order.status,
+    amount: order.finalPrice != null ? Number(order.finalPrice) : Number(order.total ?? 0),
+    bankInfo: method === 'BANK_TRANSFER' ? getBankInfo() : null,
+    paymentWatchToken: order.paymentWatchToken || null,
+    message,
+    ...extra,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // POST /api/orders
@@ -224,9 +257,10 @@ router.post('/', _orderRateLimit, optionalAuthenticate, async (req, res) => {
       }
 
       const finalPrice = totalPrice - discountAmount;
-      const isOnlinePayment = payment === 'VNPAY';
+      const isOnlinePayment = ONLINE_PAYMENT_METHODS.has(payment);
+      const orderId = 'BU-' + Date.now().toString(36).toUpperCase() + '-' + uuidv4().slice(0, 8);
       const newOrder = {
-        orderId: 'BU-' + Date.now().toString(36).toUpperCase() + '-' + uuidv4().slice(0, 8),
+        orderId,
         designUrl: designUrl || null,
         // Multi-design: persist per-side print composites (additive; null when absent).
         frontDesignUrl: frontDesignUrl || null,
@@ -249,9 +283,16 @@ router.post('/', _orderRateLimit, optionalAuthenticate, async (req, res) => {
         payment: payment || 'COD',
         paymentStatus: isOnlinePayment ? 'pending' : undefined,
         status: isOnlinePayment ? 'awaiting_payment' : 'pending',
+        // Exact memo the customer must transfer with. SePay echoes it back in
+        // `code`/`content`, which is how the webhook finds this order.
+        transferContent: isOnlinePayment ? `BLANKUP-${orderId}` : undefined,
+        // Lets a guest checkout screen follow this one order's payment state
+        // without a session. Not an account credential.
+        paymentWatchToken: crypto.randomBytes(16).toString('hex'),
         userId: effectiveUserId,
         authorName: authorName || 'Guest',
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
 
       // Persist order BEFORE voucher redemption — fileStore is atomic (tmp+rename)
@@ -324,13 +365,9 @@ router.post('/', _orderRateLimit, optionalAuthenticate, async (req, res) => {
         });
       }
       // Return cached result (same key + same body = same order)
-      return res.status(200).json({
-        success: true,
-        idempotent: true,
-        orderId: order.result.orderId,
-        transferContent: `BLANKUP-${order.result.orderId}`,
-        message: 'Đơn hàng đã được tạo trước đó.',
-      });
+      return res.status(200).json(
+        orderPaymentResponse(order.result, 'Đơn hàng đã được tạo trước đó.', { idempotent: true })
+      );
     }
 
     // Store in idempotency cache for future duplicate requests
@@ -344,13 +381,12 @@ router.post('/', _orderRateLimit, optionalAuthenticate, async (req, res) => {
 
     console.log(`[Orders] New order created: ${order.orderId} (By: ${order.authorName})`);
 
-    const transferContent = `BLANKUP-${order.orderId}`;
-    res.status(201).json({
-      success: true,
-      orderId: order.orderId,
-      transferContent,
-      message: 'Đặt hàng thành công! Chúng tôi sẽ liên hệ bạn sớm nhất.',
-    });
+    // Let every admin/user board see the new order immediately.
+    publishOrderEvent(order, { source: 'created' });
+
+    res.status(201).json(
+      orderPaymentResponse(order, 'Đặt hàng thành công! Chúng tôi sẽ liên hệ bạn sớm nhất.')
+    );
   } catch (err) {
     console.error('[Orders] Error creating order:', err.message);
     res.status(500).json({ success: false, error: 'Failed to create order' });
@@ -389,6 +425,117 @@ router.get('/me', authenticate, (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
+// GET /api/orders/stream — Server-Sent Events feed of order changes
+// Declared BEFORE '/:id' so the literal path can never be read as an order id.
+//   admin          → every order
+//   signed-in user → their own orders
+//   guest          → the single order it holds a watch token for
+// ---------------------------------------------------------------------------
+router.get('/stream', optionalAuthenticate, (req, res) => {
+  try {
+    const user = req.user || null;
+    const isAdmin = Boolean(user && user.role === 'admin');
+    const { orderId, token } = req.query;
+
+    let guestOrderId = null;
+    if (!isAdmin && !user) {
+      if (!orderId || !token) {
+        return res.status(401).json({ success: false, error: 'Unauthorized. Sign in, or pass orderId + watch token.' });
+      }
+      const order = readOrders().find((o) => o.orderId === orderId);
+      if (!order || !order.paymentWatchToken || !safeEqual(order.paymentWatchToken, token)) {
+        return res.status(403).json({ success: false, error: 'Forbidden. Invalid order watch token.' });
+      }
+      guestOrderId = order.orderId;
+    }
+
+    // no-transform + no-store are REQUIRED: the global compression middleware
+    // buffers any compressible response, which would silently starve the stream.
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache, no-transform',
+      Connection: 'keep-alive',
+      'X-Accel-Buffering': 'no',
+    });
+    res.write('retry: 5000\n\n');
+    res.write(`event: ready\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+    if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+    const listener = (event) => {
+      if (!isAdmin) {
+        if (guestOrderId) {
+          if (event.orderId !== guestOrderId) return;
+        } else if (!user || event.userId !== user.id) {
+          return;
+        }
+      }
+      try {
+        res.write(`event: order\ndata: ${JSON.stringify(event)}\n\n`);
+      } catch { /* client vanished — cleanup happens on close */ }
+    };
+
+    const unsubscribe = subscribe(listener);
+    // Heartbeat keeps proxies and the browser from dropping an idle stream.
+    const heartbeat = setInterval(() => {
+      try { res.write(': ping\n\n'); } catch { /* closed */ }
+    }, 25000);
+    if (heartbeat.unref) heartbeat.unref();
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
+  } catch (err) {
+    console.error('[Orders] SSE stream error:', err.message);
+    if (!res.headersSent) res.status(500).json({ success: false, error: 'Stream unavailable' });
+    else res.end();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/orders/:orderId/payment-status
+// Payment state only (no customer PII). Readable by the owner/admin, or by
+// whoever holds the order's watch token — a guest checkout has no session.
+// ---------------------------------------------------------------------------
+router.get('/:orderId/payment-status', optionalAuthenticate, (req, res) => {
+  try {
+    const user = req.user || null;
+    const watchToken = req.query.token;
+    // No credential at all → 401 before any lookup, so an anonymous caller cannot
+    // probe which order ids exist.
+    if (!user && !watchToken) {
+      return res.status(401).json({ success: false, error: 'Unauthorized. Sign in or pass the order watch token.' });
+    }
+
+    const order = readOrders().find((o) => o.orderId === req.params.orderId);
+    if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
+
+    const isAdmin = Boolean(user && user.role === 'admin');
+    const isOwner = Boolean(user && order.userId && order.userId === user.id);
+    const hasToken = Boolean(
+      order.paymentWatchToken && watchToken && safeEqual(order.paymentWatchToken, watchToken)
+    );
+    if (!isAdmin && !isOwner && !hasToken) {
+      return res.status(403).json({ success: false, error: 'Forbidden. Not your order.' });
+    }
+
+    res.json({
+      success: true,
+      orderId: order.orderId,
+      paymentStatus: order.paymentStatus || 'pending',
+      paymentMethod: order.paymentMethod || order.payment || 'COD',
+      status: order.status,
+      paidAt: order.paidAt || null,
+      amount: order.finalPrice != null ? Number(order.finalPrice) : Number(order.total ?? 0),
+      paymentReceivedAmount: order.paymentReceivedAmount ?? null,
+    });
+  } catch (err) {
+    console.error('[Orders] Error fetching payment status:', err.message);
+    res.status(500).json({ success: false, error: 'Failed to fetch payment status' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // GET /api/orders/:id
 // ---------------------------------------------------------------------------
 router.get('/:id', authenticate, (req, res) => {
@@ -407,7 +554,7 @@ router.get('/:id', authenticate, (req, res) => {
       return res.status(403).json({ success: false, error: 'Forbidden. Admin only for guest orders.' });
     }
 
-    res.json({ success: true, data: order });
+    res.json({ success: true, data: stripOrderSecrets(order) });
   } catch (err) {
     console.error('[Orders] Error fetching order:', err.message);
     res.status(500).json({ success: false, error: 'Failed to fetch order' });
@@ -417,15 +564,19 @@ router.get('/:id', authenticate, (req, res) => {
 // ---------------------------------------------------------------------------
 // Order / payment invariants + status state machine
 // ---------------------------------------------------------------------------
-const ORDER_STATUSES = ['pending', 'awaiting_payment', 'processing', 'shipped', 'delivered', 'completed', 'cancelled', 'payment_failed'];
+const ORDER_STATUSES = ['pending', 'awaiting_payment', 'paid', 'processing', 'shipped', 'delivered', 'completed', 'cancelled', 'payment_failed'];
 const PAYMENT_STATUSES = ['paid', 'underpaid', 'failed', 'pending', 'awaiting_transfer'];
 const TERMINAL_ORDER_STATUSES = new Set(['cancelled', 'completed']);
 const BLOCKED_PAYMENT_TARGET_STATUSES = new Set(['cancelled', 'completed']);
 const ORDER_TRANSITIONS = {
-  // Lane: pending/awaiting → processing → shipped → delivered → completed. payment_failed is the recoverable failure.
-  pending: new Set(['processing', 'cancelled', 'payment_failed']),
-  awaiting_payment: new Set(['processing', 'cancelled', 'payment_failed']),
-  payment_failed: new Set(['processing', 'cancelled']),
+  // Lane: pending/awaiting → paid (Đã thanh toán) → processing (Đang sản xuất)
+  // → shipped → delivered → completed. payment_failed is the recoverable failure.
+  // NOTE: payment confirmation parks the order in 'paid'; production starts only
+  // when an admin explicitly moves it to 'processing'.
+  pending: new Set(['paid', 'processing', 'cancelled', 'payment_failed']),
+  awaiting_payment: new Set(['paid', 'processing', 'cancelled', 'payment_failed']),
+  payment_failed: new Set(['paid', 'processing', 'cancelled']),
+  paid: new Set(['processing', 'cancelled']),
   processing: new Set(['shipped', 'cancelled', 'completed']),
   shipped: new Set(['delivered', 'completed', 'cancelled']),
   delivered: new Set(['completed', 'cancelled']),
@@ -504,7 +655,9 @@ router.put('/:id/payment', authenticate, async (req, res) => {
 
       if (paymentStatus === 'paid') {
         if (order.status === 'awaiting_payment' || order.status === 'payment_failed' || order.status === 'pending') {
-          order.status = 'processing';
+          // Money received ≠ production started. Park the order in 'paid'
+          // (Đã thanh toán) until an admin explicitly starts production.
+          order.status = 'paid';
         }
         if (!order.paidAt) order.paidAt = new Date().toISOString();
       } else if (paymentStatus === 'underpaid') {
@@ -534,7 +687,9 @@ router.put('/:id/payment', authenticate, async (req, res) => {
     if (out.invalidAmount) return res.status(400).json({ success: false, error: out.invalidAmount });
 
     console.log(`[Orders] Order ${req.params.id} payment ${out.prev.paymentStatus}→${paymentStatus} status ${out.prev.status}→${out.order.status} paidAt=${out.order.paidAt}`);
-    res.json({ success: true, message: 'Cập nhật thanh toán thành công!', data: out.order });
+    // Realtime: the customer's checkout screen and every admin board update now.
+    publishOrderEvent(out.order, { source: 'admin_payment_update' });
+    res.json({ success: true, message: 'Cập nhật thanh toán thành công!', data: stripOrderSecrets(out.order) });
   } catch (err) {
     console.error('[Orders] Error updating payment:', err.message);
     res.status(500).json({ success: false, error: 'Failed to update payment' });
@@ -611,7 +766,8 @@ router.put('/:id/status', authenticate, async (req, res) => {
     if (out.invariant) return res.status(409).json({ success: false, error: out.invariant });
 
     console.log(`[Orders] Order ${req.params.id} status ${out.prev}→${out.order.status}`);
-    res.json({ success: true, message: 'Cập nhật trạng thái đơn hàng thành công!', data: out.order });
+    publishOrderEvent(out.order, { source: 'admin_status_update' });
+    res.json({ success: true, message: 'Cập nhật trạng thái đơn hàng thành công!', data: stripOrderSecrets(out.order) });
   } catch (err) {
     console.error('[Orders] Error updating status:', err.message);
     res.status(500).json({ success: false, error: 'Failed to update order status' });

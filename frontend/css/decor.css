@@ -51,7 +51,7 @@ body.home-page .hero { color: #ece4d4; }
 .decor-grain::after {
   content: '+';
   position: absolute;
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   font-weight: 400;
   font-size: 26px;
   line-height: 1;
@@ -64,12 +64,12 @@ body.home-page .hero { color: #ece4d4; }
    3. HERO TYPE — mono micro-labels, wide tracking (print style)
    ------------------------------------------------------------ */
 .hero .hero-badge {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.32em;
   color: #d9b06a;
 }
 .hero .hero-title-sub {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.34em;
   color: rgba(236, 228, 212, 0.55);
 }
@@ -191,7 +191,7 @@ body.home-page .nav-logo-accent { color: #d9b06a; }
 .how .how-step h3 { color: #f4ecd9; }
 .how .how-step p { color: rgba(236, 228, 212, 0.62); }
 .how .how-step-number {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   color: #d9b06a;
   opacity: 0.9;
 }
@@ -208,20 +208,13 @@ body.home-page .nav-logo-accent { color: #d9b06a; }
 .collections .section-subtitle { color: rgba(236, 228, 212, 0.66); }
 
 .reviews {
-  background:
-    linear-gradient(180deg, rgba(14, 11, 8, 0.9) 0%, rgba(14, 11, 8, 0.94) 100%),
-    url('../assets/img/blankup-tshirt-closeup.jpg') center / cover no-repeat,
-    #0e0b08 !important;
+  background: var(--hp-bg, #f5f2eb) !important;
+  border-top: 1px solid var(--hp-border, rgba(15, 12, 9, 0.12));
+  border-bottom: 1px solid var(--hp-border, rgba(15, 12, 9, 0.12));
 }
-.reviews .section-title-em, .reviews .section-badge { color: #e6c98a; }
-.reviews .section-subtitle { color: rgba(236, 228, 212, 0.66); }
-.reviews .review-card {
-  background: rgba(22, 17, 12, 0.72);
-  border-color: rgba(226, 180, 106, 0.2);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-.reviews .review-card p { color: rgba(236, 228, 212, 0.82); }
+.reviews .section-title-em,
+.reviews .section-badge { color: var(--hp-accent-text, #7d5f2c); }
+.reviews .section-subtitle { color: var(--hp-text-muted, #6d6358); }
 
 .cta-section {
   background:
@@ -231,7 +224,7 @@ body.home-page .nav-logo-accent { color: #d9b06a; }
 }
 .cta-section .cta-title { color: #f4ecd9; }
 .cta-section .cta-badge {
-  font-family: 'DM Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.3em;
   color: #e6c98a;
 }

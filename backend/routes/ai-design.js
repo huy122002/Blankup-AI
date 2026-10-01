@@ -3,13 +3,13 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, requireAdmin } = require('../middleware/auth');
 let galleryLimiter;
 try { ({ galleryLimiter } = require('../middleware/rateLimit')); } catch {}
 if (typeof galleryLimiter !== 'function') galleryLimiter = (req, res, next) => next();
 const { readJson, writeJson, withLock, DATA_DIR } = require('../utils/fileStore');
 const { getPool, sql } = require('../db');
-const { generateWithFallback } = require('../services/ai-providers');
+const { generateWithFallback, getProviderHealth } = require('../services/ai-providers');
 const { getConfig } = require('../services/ai-providers/provider.config');
 
 // Helper: deduct 1 credit for AI generation (dailyFree → bonusLow → high)
@@ -773,6 +773,21 @@ const readComments = () => readJson(commentsFilePath);
 const writeComments = (data) => writeJson(commentsFilePath, data);
 
 // ---------------------------------------------------------------------------
+// GET /api/ai-design/providers/health
+// Admin-only snapshot of the AI provider layer: which providers are enabled,
+// actually available, and with which model/timeout. Credentials are never
+// exposed. Declared before the /:id routes so it can never be shadowed.
+// ---------------------------------------------------------------------------
+router.get('/providers/health', authenticate, requireAdmin, (req, res) => {
+  try {
+    return res.json({ success: true, health: getProviderHealth() });
+  } catch (err) {
+    console.error('[AI-Design] Provider health check failed:', err.message);
+    return res.status(500).json({ success: false, error: 'Provider health unavailable' });
+  }
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/ai-design/generate
 // AI design generation from text prompt — requires authentication
 // ---------------------------------------------------------------------------
@@ -863,6 +878,35 @@ router.post('/generate', authenticate, async (req, res) => {
       }
     }
 
+    // Report remaining credits so the UI can update its counter without an extra request.
+    let remainingCredits = null;
+    try {
+      const pool = getPool();
+      const balRes = await pool.request()
+        .input('userId', sql.NVarChar, req.user.id)
+        .query(`
+          SELECT a.highCredits, a.bonusLowCredits, a.dailyFreeLowCreditsUsed,
+                 p.dailyFreeLowCredits AS planDailyFree
+          FROM UserAiAccounts a
+          LEFT JOIN AiPlans p ON p.id = a.displayPlanId
+          WHERE a.userId = @userId
+        `);
+      const bal = balRes.recordset[0];
+      if (bal) {
+        const dailyFreeLimit = Number(bal.planDailyFree) || 0;
+        const remainingDaily = Math.max(0, dailyFreeLimit - (Number(bal.dailyFreeLowCreditsUsed) || 0));
+        remainingCredits = {
+          remainingDaily,
+          remainingLow: Number(bal.bonusLowCredits) || 0,
+          remainingHigh: Number(bal.highCredits) || 0,
+          remainingTotal: remainingDaily + (Number(bal.bonusLowCredits) || 0) + (Number(bal.highCredits) || 0),
+          usedType: creditRes.creditType,
+        };
+      }
+    } catch (balErr) {
+      console.warn(`[AI-Design] Could not read remaining credits: ${balErr.message}`);
+    }
+
     console.log(`[AI-Design] Generated design ${designId} via ${provider} for prompt: "${prompt}" (style: ${style || DEFAULT_STYLE})`);
     saveDesignRecord({
       designId,
@@ -889,6 +933,7 @@ router.post('/generate', authenticate, async (req, res) => {
       provider,
       finalPrompt,
       finalProductPrompt,
+      remainingCredits,
     });
   } catch (err) {
     console.error('[AI-Design] Error generating design:', err.message);
@@ -1021,6 +1066,33 @@ router.post('/generate-from-image', authenticate, upload.single('image'), async 
       prompt: idea || 'Remix from image',
       style: 'abstract',
     };
+
+    // Remaining credits so the UI can refresh its counter without an extra request.
+    try {
+      const balRes = await pool.request()
+        .input('userId', sql.NVarChar, req.user.id)
+        .query(`
+          SELECT a.highCredits, a.bonusLowCredits, a.dailyFreeLowCreditsUsed,
+                 p.dailyFreeLowCredits AS planDailyFree
+          FROM UserAiAccounts a
+          LEFT JOIN AiPlans p ON p.id = a.displayPlanId
+          WHERE a.userId = @userId
+        `);
+      const bal = balRes.recordset[0];
+      if (bal) {
+        const dailyFreeLimit = Number(bal.planDailyFree) || 0;
+        const remainingDaily = Math.max(0, dailyFreeLimit - (Number(bal.dailyFreeLowCreditsUsed) || 0));
+        response.remainingCredits = {
+          remainingDaily,
+          remainingLow: Number(bal.bonusLowCredits) || 0,
+          remainingHigh: Number(bal.highCredits) || 0,
+          remainingTotal: remainingDaily + (Number(bal.bonusLowCredits) || 0) + (Number(bal.highCredits) || 0),
+          usedType: creditResImg.creditType,
+        };
+      }
+    } catch (balErr) {
+      console.warn(`[AI-Design] Could not read remaining credits (from-image): ${balErr.message}`);
+    }
 
     if (mode === 'reference') {
       response.referenceAssetId = referenceAssetId;

@@ -10,10 +10,15 @@
   <title>Tài khoản của tôi — Blankup</title>
 
   <script src="js/guard-account.js"></script>
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-latin.woff2" as="font" type="font/woff2" crossorigin />
 
-    <link rel="stylesheet" href="css/tokens.css?v=v5">
+
+    <link rel="stylesheet" href="css/tokens.css?v=v7">
   <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/account.css?v=v5">
+  <link rel="stylesheet" href="css/account.css?v=v9">
   <link rel="stylesheet" href="css/pro.css?v=v2">
 </head>
 <body class="bk-grain">
@@ -245,6 +250,29 @@
     </div>
   </div>
 
+  <!-- ====== REVIEW MODAL (đánh giá đơn hàng) ====== -->
+  <div id="reviewModal" class="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="reviewModalTitle" style="display:none;">
+    <div class="modal-content review-modal-content">
+      <button id="reviewModalClose" class="review-modal-close" aria-label="Đóng">✕</button>
+      <p class="review-modal-kicker">Đơn hàng của bạn</p>
+      <h2 id="reviewModalTitle">Đánh giá đơn hàng</h2>
+      <div id="reviewOrderLine" class="review-order-line"></div>
+      <div class="review-field">
+        <div class="review-field-label">Mức độ hài lòng</div>
+        <div id="reviewStars" role="radiogroup" aria-label="Chọn số sao từ 1 đến 5"></div>
+        <div id="reviewRatingLabel" class="review-rating-label" aria-live="polite" data-level="5">Tuyệt vời</div>
+        <div class="review-hint">Đánh giá gắn với đơn hàng thật — chỉ người đã đặt mới có thể đánh giá.</div>
+      </div>
+      <div class="review-field">
+        <label class="review-field-label" for="reviewComment">Nhận xét (không bắt buộc)</label>
+        <textarea id="reviewComment" rows="4" maxlength="600" placeholder="Chia sẻ trải nghiệm đặt hàng, chất lượng in, tốc độ xử lý..."></textarea>
+        <div id="reviewCount" class="review-count">0/600</div>
+      </div>
+      <div id="reviewError" role="alert" style="display:none; color:#8a4b2f; font-size:0.82rem; margin-bottom:10px;"></div>
+      <button id="reviewSubmitBtn" class="btn btn-primary review-submit">Gửi đánh giá</button>
+    </div>
+  </div>
+
   <!-- ====== FOOTER ====== -->
   <footer class="footer" id="footer">
     <div class="container">
@@ -259,10 +287,10 @@
     </div>
   </footer>
 
-  <script src="js/i18n.js"></script>
+  <script src="js/i18n.js?v=v3"></script>
   <script src="js/auth.js"></script>
   <script src="js/toast.js"></script>
-  <script src="js/motion.js?v=v5"></script>
-  <script src="js/pro.js?v=v2" defer></script><script src="js/account.js"></script>
+  <script src="js/motion.js?v=v6"></script>
+  <script src="js/pro.js?v=v2" defer></script><script src="js/order-stream.js?v=v1"></script><script src="js/account.js?v=v10"></script>
 </body>
 </html>

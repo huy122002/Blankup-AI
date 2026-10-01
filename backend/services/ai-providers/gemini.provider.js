@@ -15,7 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { BaseAIProvider, AIProviderError } = require('./base.provider');
+const { BaseAIProvider, AIProviderError, isQuotaExhaustedError } = require('./base.provider');
 
 const uploadsDir = path.join(__dirname, '../../uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
@@ -59,8 +59,11 @@ function classifyGeminiError(e) {
     : (typeof e?.statusCode === 'number' && e.statusCode > 0 ? e.statusCode : 0);
   const msg = String(e?.message || '');
   const isTimeout = e?.name === 'AbortError' || /timeout|timed out|ETIMEDOUT|deadline/i.test(msg);
-  const retryable = isTimeout || (statusCode >= 500 && statusCode < 600) || statusCode === 429;
-  return { statusCode: statusCode || 500, retryable, isTimeout };
+  // An exhausted quota (e.g. "limit: 0 requests per day on Free Tier") is a 429 that
+  // can never succeed on retry — fail straight through to the next provider.
+  const quota = isQuotaExhaustedError(statusCode, msg);
+  const retryable = !quota && (isTimeout || (statusCode >= 500 && statusCode < 600) || statusCode === 429);
+  return { statusCode: statusCode || 500, retryable, isTimeout, quota };
 }
 
 // Extract the generated image from an interaction response. Prefers the
@@ -117,10 +120,14 @@ class GeminiProvider extends BaseAIProvider {
     try {
       return await this._getClient().interactions.create(payload);
     } catch (e) {
-      const { statusCode, retryable, isTimeout } = classifyGeminiError(e);
+      const { statusCode, retryable, isTimeout, quota } = classifyGeminiError(e);
       throw new AIProviderError({
         provider: this.name,
-        code: isTimeout ? 'GEMINI_TIMEOUT' : (statusCode === 401 || statusCode === 403 ? 'GEMINI_AUTH_ERROR' : 'GEMINI_ERROR'),
+        code: isTimeout
+          ? 'GEMINI_TIMEOUT'
+          : (quota
+            ? 'GEMINI_QUOTA_EXHAUSTED'
+            : (statusCode === 401 || statusCode === 403 ? 'GEMINI_AUTH_ERROR' : 'GEMINI_ERROR')),
         message: geminiErrorMessage(e),
         retryable,
         statusCode,

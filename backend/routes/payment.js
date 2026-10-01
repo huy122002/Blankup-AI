@@ -2,8 +2,16 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const { buildPaymentUrl, verifyIpn } = require('../services/vnpay.service');
-const { authenticate } = require('../middleware/auth');
+const { authenticate, optionalAuthenticate } = require('../middleware/auth');
+const {
+  normalizeSepayPayload,
+  verifySepayRequest,
+  confirmOrderFromSepay,
+  safeEqual,
+  getBankInfo,
+} = require('../services/sepay.service');
 const { readJson, writeJson, withLock } = require('../utils/fileStore');
+const { publishOrderEvent } = require('../services/order-events');
 
 const ORDERS_FILE = path.join(__dirname, '../data/orders.json');
 const readOrders = () => readJson(ORDERS_FILE);
@@ -13,7 +21,7 @@ const writeOrders = (data) => writeJson(ORDERS_FILE, data);
 // Payment state transition guards
 // ---------------------------------------------------------------------------
 // paymentStatus lifecycle: undefined/null/pending → paid (terminal) | failed (retryable)
-// order.status: pending, awaiting_payment, processing, shipped, delivered, completed, cancelled, payment_failed
+// order.status: pending, awaiting_payment, paid, processing, shipped, delivered, completed, cancelled, payment_failed
 //
 // Guards:
 // - paid is terminal: no further payment state writes (idempotent)
@@ -148,10 +156,12 @@ router.get('/vnpay-return', async (req, res) => {
         return { order, action: 'amount_mismatch' };
       }
       order.paymentStatus = 'paid';
-      order.status = 'processing';
+      // Paid ≠ in production: park in 'paid' (Đã thanh toán); admin starts production.
+      order.status = 'paid';
       order.paymentTransactionId = result.transactionId;
       order.paidAt = new Date().toISOString();
       writeOrders(orders);
+      publishOrderEvent(order, { source: 'vnpay' });
       return { order, action: 'paid' };
     }
 
@@ -208,10 +218,12 @@ router.get('/vnpay-ipn', async (req, res) => {
         return { status: 'amount_mismatch' };
       }
       order.paymentStatus = 'paid';
-      order.status = 'processing';
+      // Paid ≠ in production: park in 'paid' (Đã thanh toán); admin starts production.
+      order.status = 'paid';
       order.paymentTransactionId = result.transactionId;
       order.paidAt = new Date().toISOString();
       writeOrders(orders);
+      publishOrderEvent(order, { source: 'vnpay' });
       return { status: 'success' };
     }
 
@@ -228,17 +240,89 @@ router.get('/vnpay-ipn', async (req, res) => {
   return res.json({ RspCode: '00', Message: 'Payment failed recorded' });
 });
 
-// GET /api/payment/status/:orderId — Check payment status (ownership required)
-router.get('/status/:orderId', authenticate, (req, res) => {
+// ---------------------------------------------------------------------------
+// GET /api/payment/bank-info — bank details behind the checkout QR (public)
+// ---------------------------------------------------------------------------
+router.get('/bank-info', (req, res) => {
+  res.json({
+    success: true,
+    bankInfo: getBankInfo(),
+    // Tells the client whether webhook authentication is enforced server-side.
+    sepayConfigured: Boolean(process.env.SEPAY_WEBHOOK_SECRET),
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/payment/sepay-webhook — SePay reconciliation for PRODUCT ORDERS
+// Paste this URL into the SePay dashboard (Webhooks). SePay retries every
+// non-2xx response, so "nothing to do" answers 200 and only genuine failures
+// answer 5xx (which makes SePay retry the transfer).
+// ---------------------------------------------------------------------------
+router.post('/sepay-webhook', async (req, res) => {
+  try {
+    const auth = verifySepayRequest(req.headers, process.env.SEPAY_WEBHOOK_SECRET);
+    if (auth.configured && !auth.ok) {
+      console.warn('[Payment] SePay webhook rejected: invalid secret');
+      return res.status(401).json({ success: false, error: 'Invalid webhook secret' });
+    }
+    if (!auth.configured) {
+      console.warn('[Payment] SEPAY_WEBHOOK_SECRET is not set — accepting an UNVERIFIED SePay webhook. Set it in .env AND in the SePay dashboard before going live.');
+    }
+
+    const normalized = normalizeSepayPayload(req.body || {});
+    console.log(`[Payment] SePay webhook: type=${normalized.transferType} amount=${normalized.amount} code=${normalized.code || '-'} content="${normalized.content}" ref=${normalized.transactionId || '-'}`);
+
+    if (normalized.transferType !== 'in') {
+      return res.json({ success: true, message: 'Ignored: not an incoming transfer' });
+    }
+
+    const outcome = await confirmOrderFromSepay(normalized);
+
+    switch (outcome.action) {
+      case 'paid':
+        return res.json({ success: true, message: 'Payment confirmed', orderId: outcome.order.orderId });
+      case 'already_paid':
+        return res.json({ success: true, message: 'Order already paid' });
+      case 'underpaid':
+        return res.json({ success: true, message: 'Underpaid: recorded, order stays unpaid until topped up' });
+      case 'cancelled':
+        return res.json({ success: true, message: 'Order cancelled — payment ignored' });
+      case 'not_found':
+        // Usually an AI-plan transfer landing on the order webhook (or vice versa).
+        return res.json({ success: true, message: 'No matching order' });
+      default:
+        return res.json({ success: true, message: `Ignored: ${outcome.action}` });
+    }
+  } catch (err) {
+    console.error('[Payment] SePay webhook error:', err.message);
+    // 500 makes SePay retry — correct for transient failures.
+    return res.status(500).json({ success: false, error: 'Webhook processing failed' });
+  }
+});
+
+// GET /api/payment/status/:orderId — Check payment status
+// Owner, admin, or the holder of the order's checkout watch token (a guest
+// checkout has no session, and previously could not read its own status).
+router.get('/status/:orderId', optionalAuthenticate, (req, res) => {
+  const user = req.user || null;
+  const watchToken = req.query.token;
+  // No credential at all → 401, and answer before looking the order up so an
+  // anonymous caller cannot probe which order ids exist.
+  if (!user && !watchToken) {
+    return res.status(401).json({ success: false, error: 'Unauthorized. Sign in or pass the order watch token.' });
+  }
+
   const orders = readOrders();
   const order = orders.find(o => o.orderId === req.params.orderId);
   if (!order) return res.status(404).json({ success: false, error: 'Order not found' });
 
-  if (order.userId && order.userId !== req.user.id && req.user.role !== 'admin') {
+  const isAdmin = Boolean(user && user.role === 'admin');
+  const isOwner = Boolean(user && order.userId && order.userId === user.id);
+  const hasToken = Boolean(
+    order.paymentWatchToken && watchToken && safeEqual(order.paymentWatchToken, watchToken)
+  );
+  if (!isAdmin && !isOwner && !hasToken) {
     return res.status(403).json({ success: false, error: 'Forbidden. Not your order.' });
-  }
-  if (!order.userId && req.user.role !== 'admin') {
-    return res.status(403).json({ success: false, error: 'Forbidden. Admin only for guest orders.' });
   }
 
   res.json({

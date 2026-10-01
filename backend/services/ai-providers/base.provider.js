@@ -42,4 +42,27 @@ class BaseAIProvider {
   }
 }
 
-module.exports = { BaseAIProvider, AIProviderError };
+// A 429 is normally retryable (rate limit). A 429 caused by an EXHAUSTED QUOTA or a
+// billing problem is not: retrying cannot succeed and only delays the fallback to the
+// next provider. Observed real payloads this matches:
+//   OpenAI  : "You have no credits remaining. Add credits ... billing/."
+//   Gemini  : "429 Rate limit exceeded ... (limit: 0 requests per day on Free Tier)"
+// status 402 is included because some gateways report exhausted credit as Payment Required.
+const QUOTA_EXHAUSTED_PATTERNS = [
+  /insufficient_quota/i,
+  /no credits remaining/i,
+  /exceeded your current quota/i,
+  /quota exceeded/i,
+  /limit:\s*0\s+(requests|input tokens)/i,
+  /free tier/i,
+  /billing/i,
+];
+
+function isQuotaExhaustedError(statusCode, message) {
+  const status = Number(statusCode);
+  if (status !== 429 && status !== 402) return false;
+  const msg = String(message || '');
+  return QUOTA_EXHAUSTED_PATTERNS.some((re) => re.test(msg));
+}
+
+module.exports = { BaseAIProvider, AIProviderError, isQuotaExhaustedError };

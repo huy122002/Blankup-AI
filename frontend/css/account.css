@@ -34,8 +34,8 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
   font-family: var(--bk-font-display, 'Playfair Display', serif);
   font-weight: 500;
   font-size: clamp(2.2rem, 4vw, 3.4rem);
-  letter-spacing: -0.03em;
-  line-height: 1;
+  letter-spacing: -0.02em;
+  line-height: 1.15; /* VN-safe heading LH */
 }
 .account-title .accent { color: var(--bk-gold-text); font-style: italic; }
 .account-subtitle { color: #6d6358; margin-top: 10px; font-size: 0.95rem; }
@@ -358,3 +358,227 @@ body .navbar .user-dropdown-avatar { background: #0f0c09; color: #f5f2eb; }
 [data-theme="dark"] .account-tab:hover { color: #f5f2eb; }
 [data-theme="dark"] .account-empty-cta { background: #f5f2eb; color: #0f0c09 !important; }
 [data-theme="dark"] #planPurchaseModal .modal-content { background: #1d1b18; }
+
+/* ============================================================
+   REVIEW — editorial print. Hairline separators, mono indices,
+   one gold accent. Không pill, không gradient, không emoji.
+   ============================================================ */
+.account-order-review {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(15, 12, 9, 0.18);
+}
+.account-review-btn {
+  padding: 0 2px 3px;
+  font-family: var(--bk-font-mono, 'Be Vietnam Pro', sans-serif);
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bk-gold-text, #7d5f2c);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid rgba(163, 124, 58, 0.55);
+  border-radius: 0;
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease;
+}
+.account-review-btn:hover {
+  color: #4a3a1c;
+  border-color: #4a3a1c;
+  background: none;
+  transform: none;
+}
+.account-review-stars {
+  font-size: 0.8rem;
+  letter-spacing: 3px;
+  color: var(--bk-gold, #a37c3a);
+}
+.account-reviewed-note {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted, #8b857a);
+}
+
+/* --- Modal đánh giá: chữ màu mực trên giấy, không bo tròn--- */
+.review-star-btn {
+  width: 34px;
+  height: 34px;
+  font-size: 1.35rem;
+  line-height: 1;
+  color: rgba(15, 12, 9, 0.22);
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s ease, transform 0.2s var(--bk-ease-out, ease);
+}
+.review-star-btn.on { color: var(--bk-gold, #a37c3a); }
+.review-star-btn.on.preview { color: var(--bk-gold, #a37c3a); transform: translateY(-2px); }
+.review-star-btn:hover { transform: translateY(-2px); }
+.review-rating-label {
+  margin-top: 6px;
+  font-family: 'Playfair Display', Georgia, serif;
+  font-style: italic;
+  font-size: 1rem;
+  color: #3f3830;
+  transition: color 0.15s ease;
+}
+.review-rating-label[data-level="1"],
+.review-rating-label[data-level="2"] { color: #8a4b2f; }
+.review-rating-label[data-level="3"] { color: #6d6358; }
+.review-rating-label[data-level="4"],
+.review-rating-label[data-level="5"] { color: var(--bk-gold-text, #7d5f2c); }
+.review-hint {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  color: var(--text-muted, #8b857a);
+}
+#reviewSubmitBtn.loading { opacity: 0.7; cursor: progress; }
+#reviewSubmitBtn.success {
+  background: #0f0c09 !important;
+  border-color: #0f0c09 !important;
+  color: #f5f2eb !important;
+}
+
+/* --- Khối modal dùng chung (override inline style trắng bo tròn) --- */
+#reviewModal .modal-content {
+  background: #f5f2eb !important;
+  border: 1px solid rgba(15, 12, 9, 0.14);
+  border-radius: 2px !important;
+  box-shadow: 0 28px 70px rgba(15, 12, 9, 0.28);
+}
+#reviewModal .modal-content h2 {
+  font-family: 'Playfair Display', Georgia, serif;
+  font-weight: 600;
+  font-size: 1.5rem;
+  letter-spacing: -0.01em;
+  color: #0f0c09;
+}
+#reviewModal #reviewOrderLine {
+  font-family: var(--bk-font-mono, 'Be Vietnam Pro', sans-serif);
+  font-size: 0.7rem !important;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #6d6358 !important;
+}
+#reviewModal .modal-content textarea {
+  background: #fffdf8;
+  border: 1px solid rgba(15, 12, 9, 0.16) !important;
+  border-radius: 2px !important;
+  color: #0f0c09;
+}
+#reviewModal .modal-content textarea:focus {
+  outline: none;
+  border-color: #a37c3a !important;
+  box-shadow: 0 0 0 3px rgba(193, 152, 86, 0.18);
+}
+#reviewModal .btn-primary {
+  background: #0f0c09 !important;
+  border-color: #0f0c09 !important;
+  color: #f5f2eb !important;
+  border-radius: 0 !important;
+}
+
+/* Dark theme */
+[data-theme="dark"] .account-order-review { border-top-color: rgba(245, 242, 235, 0.16); }
+[data-theme="dark"] .account-review-btn { color: #d5b178; border-bottom-color: rgba(213, 177, 120, 0.5); }
+[data-theme="dark"] .account-review-btn:hover { color: #e8cfa0; border-bottom-color: #e8cfa0; }
+[data-theme="dark"] .account-review-stars { color: #d5b178; }
+[data-theme="dark"] .review-star-btn { color: rgba(245, 242, 235, 0.25); }
+[data-theme="dark"] .review-star-btn.on,
+[data-theme="dark"] .review-star-btn.on.preview { color: #d5b178; }
+[data-theme="dark"] .review-rating-label { color: #cfc6b4; }
+[data-theme="dark"] .review-rating-label[data-level="1"],
+[data-theme="dark"] .review-rating-label[data-level="2"] { color: #d19a76; }
+[data-theme="dark"] .review-rating-label[data-level="3"] { color: #a89c85; }
+[data-theme="dark"] .review-rating-label[data-level="4"],
+[data-theme="dark"] .review-rating-label[data-level="5"] { color: #d5b178; }
+[data-theme="dark"] #reviewModal .modal-content {
+  background: #1d1b18 !important;
+  border-color: rgba(245, 242, 235, 0.14);
+}
+[data-theme="dark"] #reviewModal .modal-content h2 { color: #f5f2eb; }
+[data-theme="dark"] #reviewModal #reviewOrderLine { color: #a89c85 !important; }
+[data-theme="dark"] #reviewModal .modal-content textarea {
+  background: #26221c;
+  border-color: rgba(245, 242, 235, 0.2) !important;
+  color: #f5f2eb;
+}
+[data-theme="dark"] #reviewModal .btn-primary {
+  background: #f5f2eb !important;
+  border-color: #f5f2eb !important;
+  color: #0f0c09 !important;
+}
+[data-theme="dark"] #reviewSubmitBtn.success {
+  background: #d5b178 !important;
+  border-color: #d5b178 !important;
+  color: #14110d !important;
+}
+
+/* --- Modal: layout classes thay inline style --- */
+.review-modal-content {
+  position: relative;
+  max-width: 460px;
+  width: 100%;
+  padding: 34px 34px 30px;
+  max-height: 90vh;
+  overflow: auto;
+  box-sizing: border-box;
+}
+.review-modal-close {
+  position: absolute;
+  top: 14px;
+  right: 18px;
+  width: 30px;
+  height: 30px;
+  font-size: 15px;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.55;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+.review-modal-close:hover { opacity: 1; }
+.review-modal-kicker {
+  margin: 0 0 10px;
+  font-family: var(--bk-font-mono, 'Be Vietnam Pro', sans-serif);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--bk-gold-text, #7d5f2c);
+}
+#reviewModal .modal-content h2 { margin: 0 0 4px; }
+.review-order-line {
+  font-family: var(--bk-font-mono, 'Be Vietnam Pro', sans-serif);
+  font-size: 0.7rem !important;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted, #8b857a) !important;
+  margin-bottom: 22px;
+}
+.review-field { margin-bottom: 18px; }
+.review-field-label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: #3f3830;
+}
+#reviewStars { display: flex; gap: 2px; }
+.review-count {
+  font-size: 0.68rem;
+  color: var(--text-muted, #8b857a);
+  margin-top: 5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.review-submit { width: 100%; }

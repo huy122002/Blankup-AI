@@ -1,7 +1,7 @@
 // backend/services/ai-providers/cloudflare.provider.js
 const fs = require('fs');
 const path = require('path');
-const { BaseAIProvider, AIProviderError } = require('./base.provider');
+const { BaseAIProvider, AIProviderError, isQuotaExhaustedError } = require('./base.provider');
 
 const uploadsDir = path.join(__dirname, '../../uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
@@ -99,8 +99,10 @@ class CloudflareProvider extends BaseAIProvider {
       else designUrl = saveGeneratedImage(extractBase64Image(data), designId);
       return { designUrl, finalPrompt };
     } catch (e) {
-      const retryable = e.name === 'AbortError' || (e.statusCode >= 500 && e.statusCode < 600) || e.statusCode === 429;
-      throw new AIProviderError({ provider: this.name, code: e.code || 'CLOUDFLARE_ERROR', message: e.message, retryable, statusCode: e.statusCode || 500 });
+      // Exhausted quota / billing 429s are NOT retryable — fall through immediately.
+      const quota = isQuotaExhaustedError(e.statusCode, e.message);
+      const retryable = !quota && (e.name === 'AbortError' || (e.statusCode >= 500 && e.statusCode < 600) || e.statusCode === 429);
+      throw new AIProviderError({ provider: this.name, code: quota ? 'CLOUDFLARE_QUOTA_EXHAUSTED' : (e.code || 'CLOUDFLARE_ERROR'), message: e.message, retryable, statusCode: e.statusCode || 500 });
     }
   }
 

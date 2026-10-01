@@ -1,182 +1,523 @@
 <!-- frontend/login.html -->
-<!DOCTYPE html>
+<!doctype html>
 <html lang="vi" data-lang="vi">
-<head>
-  <meta charset="UTF-8">
-  <meta name="view-transition" content="same-origin">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="icon" type="image/jpeg" href="/assets/img/logo.jpg">
-  <meta name="theme-color" content="#f5f2eb">
-  <title data-i18n="auth.modal.title">Đăng nhập vào Blankup</title>
-    <link rel="stylesheet" href="css/tokens.css?v=v5">
-  <link rel="stylesheet" href="css/style.css?v=editorial-1">
-  <link rel="stylesheet" href="css/pro.css?v=v2">
-</head>
-<body class="login-page-body bk-grain">
-  <a class="bk-skip-link" href="#main-content">Bỏ qua đến nội dung chính</a>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="view-transition" content="same-origin" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/jpeg" href="/assets/img/logo.jpg" />
+    <meta name="theme-color" content="#f5f2eb" />
+    <title data-i18n="auth.modal.title">Đăng nhập vào Blankup</title>
+    <link rel="canonical" href="https://blankup.vn/" />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-400-latin.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-vietnamese.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="assets/fonts/BeVietnamPro-700-latin.woff2" as="font" type="font/woff2" crossorigin />
 
-  <!-- ====== HEADER / LOGO ====== -->
-  <header class="login-header">
-    <div class="container">
-      <a href="/" class="navbar-logo">
-        <img src="/assets/img/logo.jpg" alt="Blankup logo" class="logo-icon" style="border-radius:50%; object-fit:cover; display:inline-block; vertical-align:middle;">
-        <span>BLANK<span class="logo-highlight">UP</span></span>
-      </a>
+    <link rel="stylesheet" href="css/tokens.css?v=v7" />
+    <link rel="stylesheet" href="css/style.css?v=v11" />
+    <link rel="stylesheet" href="css/home.css?v=v9" />
+    <link rel="stylesheet" href="css/pro.css?v=v5" />
+    <link rel="stylesheet" href="css/decor.css?v=v8" />
+  </head>
+  <body class="login-page-body bk-grain">
+    <a class="bk-skip-link" href="#main-content">Bỏ qua đến nội dung chính</a>
+    <!-- 29/9 -->
+    <!-- ====== HEADER / LOGO ====== -->
+    <nav class="nav" id="nav" aria-label="Điều hướng chính">
+      <div class="nav-inner">
+        <a href="index.html" class="nav-logo">
+          <img
+            src="./assets/img/logo.jpg"
+            alt="Blankup logo"
+            class="logo-icon"
+            style="
+              border-radius: 50%;
+              object-fit: cover;
+              display: inline-block;
+              vertical-align: middle;
+            "
+          />
+          <span>BLANK<span class="nav-logo-accent">UP</span></span>
+        </a>
 
-      <div class="navbar-actions" style="display: flex; align-items: center; gap: 15px;">
-        <div class="lang-toggle" id="langToggle" style="margin: 0;">
-          <span class="lang-vi active" data-lang="vi">VI</span>
-          <span class="lang-en" data-lang="en">EN</span>
-        </div>
-      </div>
-    </div>
-  </header>
-
-  <!-- ====== LOGIN CARD CONTAINER ====== -->
-  <main class="login-main" id="main-content" tabindex="-1">
-    <div class="login-card animate-fade-in rv">
-      <div class="login-card-header">
-        <div class="tag" style="margin-bottom: 18px;"><span>Blankup Studio</span></div>
-        <h2 id="loginTitle" data-i18n="auth.modal.title">Đăng nhập vào Blankup</h2>
-        <p id="loginSubtitle" data-i18n="auth.modal.tagline">Nền tảng thiết kế áo bằng AI</p>
-      </div>
-
-      <form id="loginForm">
-        <!-- Full Name (Only visible in Register mode) -->
-        <div class="form-group" id="fullNameGroup" style="display: none;">
-          <label data-i18n="auth.modal.fullName">Họ và tên</label>
-          <input type="text" class="form-input" id="loginFullName" 
-            data-i18n-placeholder="auth.modal.fullName" placeholder="Họ và tên">
-        </div>
-
-        <!-- Username -->
-        <div class="form-group">
-          <label data-i18n="auth.modal.username">Tên đăng nhập</label>
-          <input type="text" class="form-input" id="loginUsername" 
-            data-i18n-placeholder="auth.modal.username" placeholder="Tên đăng nhập" required>
+        <div class="nav-menu" id="navMenu">
+          <a href="#features" class="nav-link">Tính năng</a>
+          <a href="#how" class="nav-link">Quy trình</a>
+          <a href="#gallery" class="nav-link">Bộ sưu tập</a>
+          <a href="pricing.html" class="nav-link">Gói AI</a>
+          <a href="#studio" class="nav-link">AI Studio</a>
+          <a href="#reviews" class="nav-link">Cộng đồng</a>
         </div>
 
-        <!-- Email (register mode only — enables password recovery later) -->
-        <div class="form-group" id="emailGroup" style="display: none;">
-          <label data-i18n="auth.modal.email">Email (khuyến nghị)</label>
-          <input type="email" class="form-input" id="loginEmail"
-            data-i18n-placeholder="auth.modal.emailPlaceholder" placeholder="email@example.com">
-        </div>
-
-        <!-- Phone (register mode only) -->
-        <div class="form-group" id="phoneGroup" style="display: none;">
-          <label>Số điện thoại</label>
-          <input type="tel" class="form-input" id="loginPhone" placeholder="0912345678">
-        </div>
-
-        <!-- Password -->
-        <div class="form-group">
-          <label data-i18n="auth.modal.password">Mật khẩu</label>
-          <input type="password" class="form-input" id="loginPassword" 
-            data-i18n-placeholder="auth.modal.password" placeholder="Mật khẩu" required>
-          <div id="forgotPasswordLink" style="text-align:right; margin-top:8px;">
-            <a href="forgot-password.html" class="btn-back" data-i18n="auth.modal.forgotPassword">Quên mật khẩu?</a>
-          </div>
-        </div>
-
-        <!-- Error Msg -->
-        <div class="auth-error" id="loginErrorMsg" style="display: none;" role="alert" aria-live="assertive"></div>
-
-        <!-- Submit Button -->
-        <button type="submit" class="btn btn-primary btn-lg magnetic" style="width: 100%; margin-top: 10px;" id="loginSubmitBtn">
-          <span id="loginSubmitText" data-i18n="auth.modal.loginBtn">Đăng nhập</span>
-        </button>
-
-        <!-- Social Login -->
-        <div class="social-divider"><span data-i18n="auth.modal.socialDivider">hoặc đăng nhập bằng</span></div>
-        <div class="social-buttons">
-          <button type="button" class="social-btn social-btn-google" id="googleLoginBtn">
-            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="#4285F4" d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.57 5.57 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"/>
-              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24z"/>
-              <path fill="#FBBC05" d="M5.27 14.29A7.2 7.2 0 0 1 4.89 12c0-.8.14-1.57.38-2.29V6.62H1.29a11.99 11.99 0 0 0 0 10.76l3.98-3.09z"/>
-              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"/>
-            </svg>
-            <span data-i18n="auth.modal.googleBtn">Google</span>
+        <!-- fix 29/9 -->
+        <div class="nav-actions-1">
+          <!-- THEME -->
+          <button
+            class="nav-theme-btn"
+            id="themeToggleBtn"
+            type="button"
+            aria-label="Chuyển đổi giao diện"
+            title="Chuyển đổi giao diện"
+          >
+            ☼
           </button>
-          <button type="button" class="social-btn social-btn-facebook" id="facebookLoginBtn">
-            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
-              <path fill="#1877F2" d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07z"/>
-            </svg>
-            <span data-i18n="auth.modal.facebookBtn">Facebook</span>
+
+          <!-- LOGIN -->
+
+          <a href="login.html"
+            ><button class="nav-login-btn" type="button">Đăng nhập</button>
+          </a>
+          <!-- LANGUAGE -->
+          <div class="nav-language">
+            <button class="lang-btn active" type="button">VI</button>
+
+            <button class="lang-btn" type="button">EN</button>
+          </div>
+
+          <!-- CREATE DESIGN -->
+          <button class="nav-create-btn" type="button">
+            <a href="studio.html"
+              ><span>Tạo thiết kế</span> <span class="nav-arrow">→</span></a
+            >
           </button>
         </div>
-      </form>
-
-      <!-- Toggle Link -->
-      <div class="auth-switch">
-        <span id="loginSwitchPrompt" data-i18n="auth.modal.noAccount">Chưa có tài khoản?</span>
-        <button id="loginSwitchBtn" data-i18n="auth.modal.switchToRegister">Đăng ký ngay</button>
-      </div>
-
-      <!-- Return Link -->
-      <div class="return-home">
-        <a href="/" class="btn-back">← <span data-i18n="nav.home">Quay lại Trang chủ</span></a>
-      </div>
-    </div>
-  </main>
-
-  <!-- ====== VERIFICATION CARD (hidden by default) ====== -->
-  <main class="login-main" id="verificationSection" style="display: none;">
-    <div class="login-card animate-fade-in rv">
-      <div class="login-card-header">
-        <div class="tag" style="margin-bottom: 18px;"><span>Xác thực tài khoản</span></div>
-        <h2>Xác thực email & SĐT</h2>
-        <p id="verifySubtitle">Nhập mã xác thực 6 số đã gửi đến email và SĐT của bạn.</p>
-      </div>
-
-      <form id="verifyForm">
-        <!-- Email OTP -->
-        <div class="form-group" id="verifyEmailGroup" style="display: none;">
-          <label>Mã xác thực email</label>
-          <input type="text" class="form-input" id="verifyEmailCode" maxlength="6" pattern="[0-9]{6}"
-            placeholder="123456" inputmode="numeric" autocomplete="one-time-code"
-            style="font-size:1.3rem; letter-spacing:6px; text-align:center;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-            <span id="verifyEmailHint" style="font-size:0.78rem; color:var(--text-muted);"></span>
-            <button type="button" class="btn-back" id="resendEmailBtn" style="font-size:0.78rem;">Gửi lại mã</button>
-          </div>
-        </div>
-
-        <!-- Phone OTP -->
-        <div class="form-group" id="verifyPhoneGroup" style="display: none;">
-          <label>Mã xác thực SĐT</label>
-          <input type="text" class="form-input" id="verifyPhoneCode" maxlength="6" pattern="[0-9]{6}"
-            placeholder="123456" inputmode="numeric" autocomplete="one-time-code"
-            style="font-size:1.3rem; letter-spacing:6px; text-align:center;">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
-            <span id="verifyPhoneHint" style="font-size:0.78rem; color:var(--text-muted);"></span>
-            <button type="button" class="btn-back" id="resendPhoneBtn" style="font-size:0.78rem;">Gửi lại mã</button>
-          </div>
-        </div>
-
-        <!-- Error / Success -->
-        <div class="auth-error" id="verifyErrorMsg" style="display: none;" role="alert" aria-live="assertive"></div>
-        <div id="verifySuccessMsg" style="display: none; font-size:0.86rem; color: var(--success); background: rgba(74,90,63,0.08); border: 1px solid rgba(74,90,63,0.25); border-radius: var(--radius-xs); padding: 12px 14px; margin-bottom: 18px;"></div>
-
-        <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 10px;" id="verifySubmitBtn">
-          <span>Xác nhận</span>
+        <!-- fix 29/9 -->
+        <button
+          class="bk-nav-burger"
+          id="navToggle"
+          type="button"
+          aria-label="Mở menu"
+          aria-expanded="false"
+          aria-controls="navMenu"
+        >
+          <span></span><span></span><span></span>
         </button>
-      </form>
 
-      <div class="return-home">
-        <a href="/login.html" class="btn-back">← Quay lại Đăng nhập</a>
       </div>
-    </div>
-  </main>
+    </nav>
+    <!-- ====== LOGIN CARD CONTAINER ====== -->
+    <main
+      class="login-main"
+      id="main-content"
+      tabindex="-1"
+      style="margin-top: 30px"
+    >
+      <div class="login-card animate-fade-in rv">
+        <div class="login-card-header">
+          <!-- <div
+            class="tag"
+            style="
+              margin-bottom: 18px;
+              font-size: 21px;
+              font-weight: 700;
+              line-height: 1.2;
+              letter-spacing: 0.03em;
+            "
+          >
+            <span>Blankup Studio</span>
+          </div> -->
+          <h2 id="loginTitle" data-i18n="auth.modal.title">
+            Đăng nhập vào Blankup
+          </h2>
+          <p id="loginSubtitle" data-i18n="auth.modal.tagline">
+            Nền tảng thiết kế áo bằng AI
+          </p>
+        </div>
 
-  <!-- Scripts -->
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="js/social-config.js"></script>
-  <script src="js/i18n.js"></script>
-  <script src="js/auth.js"></script>
-  <script src="js/toast.js"></script>
-  <script src="js/motion.js?v=v5"></script>
-  <script src="js/pro.js?v=v2" defer></script><script src="js/login.js"></script>
-</body>
+        <form id="loginForm">
+          <!-- Full Name (Only visible in Register mode) -->
+          <div class="form-group" id="fullNameGroup" style="display: none">
+            <label data-i18n="auth.modal.fullName">Họ và tên</label>
+            <input
+              type="text"
+              class="form-input"
+              id="loginFullName"
+              data-i18n-placeholder="auth.modal.fullName"
+              placeholder="Họ và tên"
+            />
+          </div>
+
+          <!-- Username -->
+          <div class="form-group">
+            <label data-i18n="auth.modal.username">Tên đăng nhập</label>
+            <input
+              type="text"
+              class="form-input"
+              id="loginUsername"
+              data-i18n-placeholder="auth.modal.username"
+              placeholder="Tên đăng nhập"
+              required
+            />
+          </div>
+
+          <!-- Email (register mode only — enables password recovery later) -->
+          <div class="form-group" id="emailGroup" style="display: none">
+            <label data-i18n="auth.modal.email">Email (khuyến nghị)</label>
+            <input
+              type="email"
+              class="form-input"
+              id="loginEmail"
+              data-i18n-placeholder="auth.modal.emailPlaceholder"
+              placeholder="email@example.com"
+            />
+          </div>
+
+          <!-- Phone (register mode only) -->
+          <div class="form-group" id="phoneGroup" style="display: none">
+            <label>Số điện thoại</label>
+            <input
+              type="tel"
+              class="form-input"
+              id="loginPhone"
+              placeholder="0912345678"
+            />
+          </div>
+
+          <!-- Password -->
+          <div class="form-group">
+            <label data-i18n="auth.modal.password">Mật khẩu</label>
+            <input
+              type="password"
+              class="form-input"
+              id="loginPassword"
+              data-i18n-placeholder="auth.modal.password"
+              placeholder="Mật khẩu"
+              required
+            />
+            <div
+              id="forgotPasswordLink"
+              style="text-align: right; margin-top: 8px"
+            >
+              <a
+                href="forgot-password.html"
+                class="btn-back"
+                data-i18n="auth.modal.forgotPassword"
+                >Quên mật khẩu?</a
+              >
+            </div>
+          </div>
+
+          <!-- Error Msg -->
+          <div
+            class="auth-error"
+            id="loginErrorMsg"
+            style="display: none"
+            role="alert"
+            aria-live="assertive"
+          ></div>
+
+          <!-- Submit Button -->
+          <button
+            type="submit"
+            class="btn btn-primary btn-lg magnetic"
+            style="width: 100%; margin-top: 10px"
+            id="loginSubmitBtn"
+          >
+            <span id="loginSubmitText" data-i18n="auth.modal.loginBtn"
+              >Đăng nhập</span
+            >
+          </button>
+
+          <!-- Social Login -->
+          <div class="social-divider">
+            <span data-i18n="auth.modal.socialDivider"
+              >hoặc đăng nhập bằng</span
+            >
+          </div>
+          <div class="social-buttons">
+            <button
+              type="button"
+              class="social-btn social-btn-google"
+              id="googleLoginBtn"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  fill="#4285F4"
+                  d="M23.49 12.27c0-.79-.07-1.54-.19-2.27H12v4.51h6.47a5.57 5.57 0 0 1-2.4 3.58v3h3.86c2.26-2.09 3.56-5.17 3.56-8.82z"
+                />
+                <path
+                  fill="#34A853"
+                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.86-3c-1.08.72-2.45 1.16-4.07 1.16-3.13 0-5.78-2.11-6.73-4.96H1.29v3.09A11.99 11.99 0 0 0 12 24z"
+                />
+                <path
+                  fill="#FBBC05"
+                  d="M5.27 14.29A7.2 7.2 0 0 1 4.89 12c0-.8.14-1.57.38-2.29V6.62H1.29a11.99 11.99 0 0 0 0 10.76l3.98-3.09z"
+                />
+                <path
+                  fill="#EA4335"
+                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.31 0 3.26 2.69 1.29 6.62l3.98 3.09C6.22 6.86 8.87 4.75 12 4.75z"
+                />
+              </svg>
+              <span data-i18n="auth.modal.googleBtn">Google</span>
+            </button>
+            <button
+              type="button"
+              class="social-btn social-btn-facebook"
+              id="facebookLoginBtn"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+              >
+                <path
+                  fill="#1877F2"
+                  d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.95.93-1.95 1.89v2.26h3.32l-.53 3.49h-2.79V24C19.61 23.1 24 18.1 24 12.07z"
+                />
+              </svg>
+              <span data-i18n="auth.modal.facebookBtn">Facebook</span>
+            </button>
+          </div>
+        </form>
+
+        <!-- Toggle Link -->
+        <div class="auth-switch">
+          <span id="loginSwitchPrompt" data-i18n="auth.modal.noAccount"
+            >Chưa có tài khoản?</span
+          >
+          <button id="loginSwitchBtn" data-i18n="auth.modal.switchToRegister">
+            Đăng ký ngay
+          </button>
+        </div>
+
+        <!-- Return Link -->
+        <div class="return-home">
+          <a href="index.html" class="btn-back"
+            >← <span data-i18n="nav.home">Quay lại Trang chủ</span></a
+          >
+        </div>
+      </div>
+    </main>
+
+    <!-- ====== VERIFICATION CARD (hidden by default) ====== -->
+    <main class="login-main" id="verificationSection" style="display: none">
+      <div class="login-card animate-fade-in rv">
+        <div class="login-card-header">
+          <div class="tag" style="margin-bottom: 18px">
+            <span>Xác thực tài khoản</span>
+          </div>
+          <h2>Xác thực email & SĐT</h2>
+          <p id="verifySubtitle">
+            Nhập mã xác thực 6 số đã gửi đến email và SĐT của bạn.
+          </p>
+        </div>
+
+        <form id="verifyForm">
+          <!-- Email OTP -->
+          <div class="form-group" id="verifyEmailGroup" style="display: none">
+            <label>Mã xác thực email</label>
+            <input
+              type="text"
+              class="form-input"
+              id="verifyEmailCode"
+              maxlength="6"
+              pattern="[0-9]{6}"
+              placeholder="123456"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              style="font-size: 1.3rem; letter-spacing: 6px; text-align: center"
+            />
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 8px;
+              "
+            >
+              <span
+                id="verifyEmailHint"
+                style="font-size: 0.78rem; color: var(--text-muted)"
+              ></span>
+              <button
+                type="button"
+                class="btn-back"
+                id="resendEmailBtn"
+                style="font-size: 0.78rem"
+              >
+                Gửi lại mã
+              </button>
+            </div>
+          </div>
+
+          <!-- Phone OTP -->
+          <div class="form-group" id="verifyPhoneGroup" style="display: none">
+            <label>Mã xác thực SĐT</label>
+            <input
+              type="text"
+              class="form-input"
+              id="verifyPhoneCode"
+              maxlength="6"
+              pattern="[0-9]{6}"
+              placeholder="123456"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              style="font-size: 1.3rem; letter-spacing: 6px; text-align: center"
+            />
+            <div
+              style="
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 8px;
+              "
+            >
+              <span
+                id="verifyPhoneHint"
+                style="font-size: 0.78rem; color: var(--text-muted)"
+              ></span>
+              <button
+                type="button"
+                class="btn-back"
+                id="resendPhoneBtn"
+                style="font-size: 0.78rem"
+              >
+                Gửi lại mã
+              </button>
+            </div>
+          </div>
+
+          <!-- Error / Success -->
+          <div
+            class="auth-error"
+            id="verifyErrorMsg"
+            style="display: none"
+            role="alert"
+            aria-live="assertive"
+          ></div>
+          <div
+            id="verifySuccessMsg"
+            style="
+              display: none;
+              font-size: 0.86rem;
+              color: var(--success);
+              background: rgba(74, 90, 63, 0.08);
+              border: 1px solid rgba(74, 90, 63, 0.25);
+              border-radius: var(--radius-xs);
+              padding: 12px 14px;
+              margin-bottom: 18px;
+            "
+          ></div>
+
+          <button
+            type="submit"
+            class="btn btn-primary btn-lg"
+            style="width: 100%; margin-top: 10px"
+            id="verifySubmitBtn"
+          >
+            <span>Xác nhận</span>
+          </button>
+        </form>
+
+        <div class="return-home">
+          <a href="/login.html" class="btn-back">← Quay lại Đăng nhập</a>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer" style="z-index: 2">
+      <div class="container">
+        <div class="footer-grid">
+          <div class="footer-brand">
+            <a href="/" class="nav-logo">
+              <img
+                src="./assets/img/logo.jpg"
+                alt="Blankup logo"
+                class="logo-icon"
+                style="
+                  border-radius: 50%;
+                  object-fit: cover;
+                  display: inline-block;
+                  vertical-align: middle;
+                "
+              />
+              <span>BLANK<span class="nav-logo-accent">UP</span></span>
+            </a>
+            <p class="footer-desc">
+              Nền tảng thiết kế áo thun bằng AI.<br /><strong
+                >Ý tưởng của bạn, lên áo.</strong
+              >
+            </p>
+          </div>
+          <div>
+            <h4>Sản phẩm</h4>
+            <ul>
+              <li><a href="#gallery">Áo thun</a></li>
+              <li><a href="#gallery">Áo polo</a></li>
+              <li><a href="#gallery">Hoodie</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Hỗ trợ</h4>
+            <ul>
+              <li><a href="#faq">FAQ</a></li>
+              <li><a href="#collections">Bộ sưu tập</a></li>
+              <li><a href="#gallery">Giao hàng</a></li>
+              <li><a href="#faq">Đổi trả</a></li>
+              <li><a href="mailto:blankup1237@gmail.com">Liên hệ</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Pháp lý</h4>
+            <ul>
+              <li><a href="#">Điều khoản</a></li>
+              <li><a href="#">Bảo mật</a></li>
+            </ul>
+          </div>
+          <div class="footer-contact-col">
+            <h4>Liên hệ</h4>
+            <ul>
+              <li>
+                <a href="mailto:blankup1237@gmail.com">blankup1237@gmail.com</a>
+              </li>
+              <li>
+                <a
+                  href="https://www.facebook.com/profile.php?id=61594188004504"
+                  target="_blank"
+                  rel="noopener"
+                  >Facebook Blankup</a
+                >
+              </li>
+            </ul>
+          </div>
+        </div>
+        <div class="footer-bottom">
+          <span>© 2026 Blankup. Mọi quyền được bảo lưu.</span>
+          <span>Thiết kế tại Việt Nam 🇻🇳</span>
+        </div>
+      </div>
+    </footer>
+    <style>
+      .bk-grain::before {
+        background-image: url("assets/img/grain.png");
+        width: 55% !important;
+        height: 100% !important;
+        z-index: 0 !important;
+      }
+      footer {
+        position: relative !important;
+        z-index: 1 !important;
+        margin-top: 40px !important;
+      }
+    </style>
+
+    <!-- Scripts -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="js/social-config.js"></script>
+    <script src="js/i18n.js"></script>
+    <script src="js/auth.js"></script>
+    <script src="js/toast.js"></script>
+    <script src="js/motion.js?v=v6"></script>
+    <script src="js/pro.js?v=v2" defer></script>
+    <script src="js/login.js"></script>
+    <script src="js/nav-burger.js"></script>
+    <script src="js/ngongu.js"></script>
+  </body>
 </html>

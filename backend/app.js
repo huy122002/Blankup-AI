@@ -29,9 +29,11 @@ app.use(helmet({
       'img-src': ["'self'", 'data:', 'https://img.vietqr.io'],
       'object-src': ["'none'"],
       // studio.html has exactly 2 audited inline scripts (auth entry guard +
-      // three.js importmap); both are allowlisted by hash, all other inline
-      // scripts stay blocked.
-      'script-src': ["'self'", 'https://accounts.google.com', "'sha256-0D02wsfS+NlpLpIAaINSYArAPVInknzt55IwQNA1bu4='", "'sha256-lMdEI/ms9EMEHl64ayq+BlkKR8SpDJ7eqgoKF2Asp0k='", "'wasm-unsafe-eval'"],
+      // three.js importmap); admin.html has 1 (three.js importmap for the order
+      // 3D preview). All allowlisted by hash, all other inline scripts stay blocked.
+      // NOTE: Chromium normalizes CRLF→LF BEFORE hashing inline scripts, so the
+      // importmap hash must be computed over the LF-normalized content.
+      'script-src': ["'self'", 'https://accounts.google.com', "'sha256-0D02wsfS+NlpLpIAaINSYArAPVInknzt55IwQNA1bu4='", "'sha256-lMdEI/ms9EMEHl64ayq+BlkKR8SpDJ7eqgoKF2Asp0k='", "'sha256-7xjf9/+eCJEZLIDHezzV0j+jBuN4n0crj1tGaCgJ8FM='", "'wasm-unsafe-eval'"],
       'script-src-attr': ["'none'"],
       // Three.js GLB loader (meshopt) compiles WASM and spawns blob workers.
       'worker-src': ["'self'", 'blob:'],
@@ -133,6 +135,7 @@ app.use('/api/admin', require('./routes/admin'));
 app.use('/api/admin', require('./routes/admin-commerce'));
 app.use('/api/admin', require('./routes/admin-reports'));
 app.use('/api/payment', require('./routes/payment'));
+app.use('/api/reviews', require('./routes/reviews'));
 app.use('/api/stats', require('./routes/stats'));
 app.use('/api/assets', require('./routes/assets'));
 

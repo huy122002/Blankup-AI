@@ -66,6 +66,31 @@ router.get('/stats', authenticate, requireAdmin, async (req, res) => {
     const totalOrdersCount = orders.length;
     const averageOrderValue = completedCount > 0 ? Math.round(totalRevenue / completedCount) : 0;
 
+    // 4b. Review stats — REAL numbers from the reviews store (no placeholders).
+    const reviewsData = readJson(path.join(__dirname, '../data/reviews.json'));
+    const allReviews = Array.isArray(reviewsData) ? reviewsData : [];
+    const visibleReviews = allReviews.filter(r => r && r.status === 'visible');
+    const reviewDistribution = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let reviewSum = 0;
+    let reviewUnreplied = 0;
+    const weekAgoMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    let reviewLast7d = 0;
+    visibleReviews.forEach(r => {
+      const key = Math.min(5, Math.max(1, Math.floor(Number(r.rating) || 0)));
+      reviewDistribution[key] += 1;
+      reviewSum += key;
+      if (!(r.reply && r.reply.text)) reviewUnreplied += 1;
+      if (r.createdAt && new Date(r.createdAt).getTime() >= weekAgoMs) reviewLast7d += 1;
+    });
+    const reviewStats = {
+      total: visibleReviews.length,
+      allTotal: allReviews.length,
+      averageRating: visibleReviews.length ? Math.round((reviewSum / visibleReviews.length) * 10) / 10 : 0,
+      distribution: reviewDistribution,
+      unreplied: reviewUnreplied,
+      last7d: reviewLast7d,
+    };
+
     // 4. Users stats (add order count and register date)
     const userList = users.map((u) => {
       const userOrders = orders.filter((o) => o.userId === u.id);
@@ -105,6 +130,7 @@ router.get('/stats', authenticate, requireAdmin, async (req, res) => {
         categories,
         usersCount: users.length,
         designsCount: designs.length,
+        reviews: reviewStats,
       },
       users: userList,
       recentOrders,

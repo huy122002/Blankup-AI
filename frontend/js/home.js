@@ -932,7 +932,31 @@ async function loadReviews() {
   const section = document.getElementById('reviews');
   if (!track || !section) return;
 
+  // Ưu tiên ĐÁNH GIÁ ĐƠN HÀNG thật (khách tự đánh giá sau khi đặt hàng qua
+  // /api/reviews), sau đó lấp chỗ trống bằng bình luận từ gallery thiết kế.
   let reviews = [];
+  let reviewStats = null;
+  try {
+    const resp = await fetch(`${API_BASE}/reviews/public?limit=50`);
+    if (resp.ok) {
+      const result = await resp.json();
+      (result.data || []).forEach(r => {
+        reviews.push({
+          name: r.authorName || 'Khách hàng',
+          date: r.createdAt,
+          text: r.comment || `Đánh giá ${r.rating}/5 sao về đơn #${String(r.orderId || '').slice(0, 18)}`,
+          rating: r.rating || 0,
+          productType: r.productType || null,
+          reply: r.reply || null,
+          verified: true, // review chỉ được tạo bởi chủ đơn → luôn "đã mua hàng"
+        });
+      });
+      reviewStats = result.stats || null;
+    }
+  } catch (e) { console.warn('[Blankup] Order reviews fetch failed:', e); }
+
+  renderReviewsSummary(reviewStats);
+
   try {
     const resp = await fetch(`${API_BASE}/ai-design/gallery`);
     if (!resp.ok) throw new Error('Failed');
@@ -969,23 +993,99 @@ async function loadReviews() {
     return;
   }
 
+  // Render 6 card đầu; phần còn lại bấm “Xem thêm” (effortless paging).
+  const PAGE_SIZE = 6;
+  let shown = 0;
   const colors = ['#ff6b00', '#3b82f6', '#10b981', '#8b5cf6', '#ef4444'];
-  track.innerHTML = reviews.slice(0, 6).map((r, i) => {
-    const initial = (r.name.charAt(0) || 'K').toUpperCase();
-    let hue = 0;
-    for (const ch of r.name) hue = (hue + ch.charCodeAt(0)) % colors.length;
-    return `<div class="review-card anim-on-scroll" style="animation-delay:${i * 0.08}s">
-      <p>"${escapeHtml(r.text)}"</p>
-      <div class="review-author">
-        <div class="review-avatar" style="background:${colors[hue]};">${escapeHtml(initial)}</div>
-        <div>
-          <div class="review-name">${escapeHtml(r.name)}</div>
-          <div class="review-role">${formatCommentDate(r.date)}</div>
-        </div>
-      </div>
+
+  function reviewCardHtml(r, i) {
+    const initials = String(r.name || 'Khách hàng').trim().split(/\s+/).slice(-2).map(w => w.charAt(0).toUpperCase()).join('') || 'K';
+    const stars = r.rating
+      ? `<div class="review-card-stars" aria-label="${r.rating}/5 sao">${'★'.repeat(r.rating)}<span class="review-card-stars-off">${'★'.repeat(5 - r.rating)}</span></div>`
+      : '';
+    const reply = r.reply && r.reply.text
+      ? `<div class="review-reply">
+          <div class="review-reply-head"><span class="review-reply-mark">B</span> Blankup phản hồi</div>
+          <p>${escapeHtml(r.reply.text)}</p>
+        </div>`
+      : '';
+    return `<figure class="review-card anim-on-scroll">
+      ${stars}
+      <blockquote>"${escapeHtml(r.text)}"</blockquote>
+      ${reply}
+      <figcaption class="review-author">
+        <span class="review-index">${String(i + 1).padStart(2, '0')}</span>
+        <span class="review-avatar" aria-hidden="true">${escapeHtml(initials)}</span>
+        <span class="review-author-meta">
+          <span class="review-name">${escapeHtml(r.name)}</span>
+          <span class="review-role">Đã mua hàng · ${formatCommentDate(r.date)}</span>
+        </span>
+      </figcaption>
+    </figure>`;
+  }
+
+  function renderNextPage() {
+    const slice = reviews.slice(shown, shown + PAGE_SIZE);
+    slice.forEach((r, i) => {
+      track.insertAdjacentHTML('beforeend', reviewCardHtml(r, shown + i));
+    });
+    shown += slice.length;
+    const moreWrap = document.getElementById('reviewsMoreWrap');
+    if (moreWrap) moreWrap.hidden = shown >= reviews.length;
+    initScrollAnimations();
+  }
+
+  renderNextPage();
+  const moreBtn = document.getElementById('reviewsMoreBtn');
+  if (moreBtn && !moreBtn.dataset.bound) {
+    moreBtn.dataset.bound = '1';
+    moreBtn.addEventListener('click', () => {
+      renderNextPage();
+      // Scroll 1 card lên tầm nhìn để người dùng thấy nội dung mới.
+      track.lastElementChild?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    });
+  }
+}
+
+const PRODUCT_LABELS = { tshirt: 'Áo thun', hoodie: 'Áo hoodie', oversize: 'Áo oversize', polo: 'Áo polo', polotee: 'Áo polo', tanktop: 'Áo ba lỗ', sweatshirt: 'Áo sweatshirt' };
+
+function renderReviewsSummary(stats) {
+  const wrap = document.getElementById('reviewsSummary');
+  if (!wrap) return;
+  if (!stats || !stats.total) { wrap.hidden = true; return; }
+  const avg = stats.averageRating || 0;
+  const avgEl = document.getElementById('reviewsAvg');
+  const starsEl = document.getElementById('reviewsAvgStars');
+  const labelEl = document.getElementById('reviewsTotalLabel');
+  const barsEl = document.getElementById('reviewsBars');
+  if (!avgEl || !starsEl || !barsEl) return;
+
+  avgEl.textContent = avg.toFixed(1);
+  const full = Math.round(avg);
+  starsEl.innerHTML = `<span class="rs-full">${'★'.repeat(full)}</span><span class="rs-off">${'★'.repeat(5 - full)}</span>`;
+  labelEl.textContent = `${stats.total} đánh giá đã xác thực`; 
+
+  const max = Math.max(1, ...Object.values(stats.distribution));
+  barsEl.innerHTML = [5, 4, 3, 2, 1].map(star => {
+    const count = stats.distribution[star] || 0;
+    const pct = Math.round((count / max) * 100);
+    return `<div class="rs-bar-row">
+      <span class="rs-bar-star">${star}★</span>
+      <div class="rs-bar-track"><div class="rs-bar-fill" style="width:${pct}%"></div></div>
+      <span class="rs-bar-count">${count}</span>
     </div>`;
   }).join('');
-  initScrollAnimations();
+
+  wrap.hidden = false;
+  // Đổ đầy thanh bar sau một nhịp render để transition width chạy mượt.
+  // (setTimeout thay vì rAF: vẫn chạy đúng cả trong webview nền.)
+  setTimeout(() => {
+    barsEl.querySelectorAll('.rs-bar-fill').forEach((el, idx) => {
+      const w = el.style.width;
+      el.style.width = '0%';
+      setTimeout(() => { el.style.width = w; }, 80 + idx * 60);
+    });
+  }, 60);
 }
 
 /* ============================================================

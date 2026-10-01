@@ -150,7 +150,8 @@ describe('P-06: VNPay state transition guard', () => {
     const orders = JSON.parse(fs.readFileSync(ordersFile, 'utf8'));
     const o = orders.find(x => x.orderId === orderId);
     expect(o.paymentStatus).toBe('paid');
-    expect(o.status).toBe('processing');
+    // Paid ≠ in production: successful payment parks the order in 'paid'.
+    expect(o.status).toBe('paid');
   });
 
   it('pending → failed via IPN: failure code', async () => {

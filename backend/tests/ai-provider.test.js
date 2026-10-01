@@ -25,7 +25,8 @@ describe('Provider config — env parallel support', () => {
   });
   it('should define fallback order deterministic', () => {
     expect(cfgCode).toContain('getFallbackOrder');
-    expect(cfgCode).toContain("['omniroute', 'openai', 'cloudflare']");
+    // Full four-provider priority list (google-gemini appended last).
+    expect(cfgCode).toContain("['omniroute', 'openai', 'cloudflare', 'google-gemini']");
   });
 });
 
