@@ -41,7 +41,7 @@
   border: 1px solid var(--line, rgba(23, 20, 15, 0.12));
   background: var(--paper, #fff);
   box-shadow: 0 8px 32px rgba(23, 20, 15, 0.12);
-  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-family: "Manrope", system-ui, sans-serif;
   font-size: 0.875rem;
   line-height: 1.5;
   color: var(--ink, #17140f);
@@ -240,7 +240,7 @@
   --font-display: "Be Vietnam Pro", sans-serif;
   --font-heading: "Be Vietnam Pro", sans-serif;
   --font-body: "Be Vietnam Pro", sans-serif;
-  --font-mono: var(--font-mono);
+  --font-mono: "Be Vietnam Pro", sans-serif;
 
   /* fix 29/9 */
   --font-poster: "Playfair Display", Georgia, serif;
@@ -1455,7 +1455,7 @@ img.logo-icon {
   border-bottom: 1px solid var(--line-strong);
   color: var(--ink);
   padding: 10px 2px;
-  font-size: 1rem; /* ≥16px: prevents iOS focus zoom */
+  font-size: 0.95rem;
   transition: border-color var(--transition-fast);
 }
 .form-input::placeholder {
@@ -1962,14 +1962,14 @@ body.login-page-body {
       transparent 30%
     ),
     linear-gradient(115deg, #f5f2eb, #fffdf8 52%, #ead9c0);
-  font-family: "Be Vietnam Pro", system-ui, sans-serif;
+  font-family: "Manrope", system-ui, sans-serif;
 }
 body.login-page-body .login-header {
   background: transparent;
   border-bottom: 1px solid rgba(15, 12, 9, 0.12);
 }
 body.login-page-body .navbar-logo {
-  font-family: "Be Vietnam Pro", Arial, sans-serif;
+  font-family: "Playfair Display", Georgia, serif;
   font-style: italic;
   font-weight: 600;
 }
@@ -1978,7 +1978,7 @@ body.login-page-body .logo-highlight {
   font-style: normal;
 }
 body.login-page-body .lang-toggle {
-  font-family: var(--font-mono);
+  font-family: "DM Mono", monospace;
 }
 body.login-page-body .lang-toggle span.active {
   background: #0f0c09;
@@ -1993,7 +1993,7 @@ body.login-page-body .login-card {
   padding: 48px 44px;
 }
 body.login-page-body .login-card .tag {
-  font-family: var(--font-mono);
+  font-family: "DM Mono", monospace;
   font-size: 0.72rem;
   letter-spacing: 0.22em;
   text-transform: uppercase;
@@ -2006,16 +2006,16 @@ body.login-page-body .login-card .tag::before {
 }
 body.login-page-body .login-card-header h2,
 body.login-page-body .login-card-header .auth-h1 {
-  font-family: "Be Vietnam Pro", Arial, sans-serif;
+  font-family: "Playfair Display", Georgia, serif;
   font-weight: 500;
   font-size: 2rem;
   letter-spacing: -0.02em;
 }
 body.login-page-body .login-card-header p {
-  font-family: "Be Vietnam Pro", sans-serif;
+  font-family: "Manrope", sans-serif;
 }
 body.login-page-body .form-group label {
-  font-family: var(--font-mono);
+  font-family: "DM Mono", monospace;
   font-size: 0.72rem;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -2035,7 +2035,7 @@ body.login-page-body .login-card .btn-primary {
   color: #ffffff;
   border: 1px solid #0f0c09;
   border-radius: 2px;
-  font-family: var(--font-mono);
+  font-family: "DM Mono", monospace;
   font-size: 0.72rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -2047,12 +2047,12 @@ body.login-page-body .login-card .btn-primary:hover {
   color: #0f0c09;
 }
 body.login-page-body .social-divider {
-  font-family: var(--font-mono);
+  font-family: "DM Mono", monospace;
 }
 body.login-page-body .social-btn {
   border: 1px solid rgba(15, 12, 9, 0.2);
   border-radius: 2px;
-  font-family: "Be Vietnam Pro", sans-serif;
+  font-family: "Manrope", sans-serif;
 }
 body.login-page-body .social-btn:hover {
   border-color: #0f0c09;
@@ -2169,17 +2169,11 @@ body.login-page-body #forgotSuccessMsg {
   font-weight: 500;
 }
 
-/* nav links: readable size + VN-safe line-height (was 13px/1.0) */
-.nav-menu .nav-link {
-  font-size: var(--fs-body-sm, 0.9375rem);
-  line-height: 1.3;
-}
-
 /* =====================================================
    FONT
 ===================================================== */
 
-/* (Be Vietnam Pro is self-hosted via tokens.css — no external @import) */
+@import url("https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700&display=swap");
 
 /* =====================================================
    NAV ACTIONS
@@ -2405,46 +2399,42 @@ body.login-page-body #forgotSuccessMsg {
 }
 /* font chữ */
 /* =========================================================
-   FONT SYSTEM (site-wide)
-   Tier 1 — Identity sans: Be Vietnam Pro (self-hosted, VN-complete)
-   Tier 2 — Display serif: Playfair Display (app-pages headings)
-   'Mono-role' text (labels, badges, prices) = BVP + tabular-nums
-   via var(--font-mono) — DM Mono was removed (no VN glyphs).
+   FINAL FONT OVERRIDE
+   Be Vietnam Pro — Vietnamese / Professional
    ========================================================= */
 
+/* Font fallback chuẩn */
 :root {
   --font-vietnam: "Be Vietnam Pro", Arial, sans-serif;
 
-  --font-display: "Be Vietnam Pro", Arial, sans-serif;
-  --font-heading: "Be Vietnam Pro", Arial, sans-serif;
-  --font-body: "Be Vietnam Pro", Arial, sans-serif;
-  --font-mono: "Be Vietnam Pro", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --font-poster: "Playfair Display", Georgia, serif;
-
-  /* Type scale aliases (single source: tokens.css) */
-  --fs-nav: 0.9375rem;
-  --fs-btn: 1rem;
+  --font-display: "Be Vietnam Pro", Arial, sans-serif !important;
+  --font-heading: "Be Vietnam Pro", Arial, sans-serif !important;
+  --font-body: "Be Vietnam Pro", Arial, sans-serif !important;
+  --font-mono: "Be Vietnam Pro", Arial, sans-serif !important;
 }
 
-/* Base + form controls */
+/* Toàn bộ website */
 html,
 body,
+body *,
 button,
 input,
 textarea,
 select,
-option {
-  font-family: var(--font-body);
+option,
+a,
+label {
+  font-family: "Be Vietnam Pro", Arial, sans-serif !important;
 }
 
-/* Headings follow the identity sans */
+/* Heading */
 h1,
 h2,
 h3,
 h4,
 h5,
 h6 {
-  font-family: var(--font-heading);
+  font-family: "Be Vietnam Pro", Arial, sans-serif !important;
 }
 
 /* =========================================================
@@ -2533,7 +2523,18 @@ option,
    ========================================================= */
 
 button {
-  font-family: var(--font-body);
+  font-family: "Be Vietnam Pro", Arial, sans-serif !important;
+}
+
+/* =========================================================
+   KHÔNG CHO FONT CŨ QUAY LẠI
+   ========================================================= */
+
+.font-mono,
+.font-display,
+.font-heading,
+.font-body {
+  font-family: "Be Vietnam Pro", Arial, sans-serif !important;
 }
 
 /* bố cục  */
@@ -3712,7 +3713,7 @@ body {
 
   color: #222;
 
-  font-size: 1rem; /* ≥16px: prevents iOS focus zoom */
+  font-size: 14px;
 
   transition:
     border-color 0.2s ease,
@@ -4909,60 +4910,6 @@ select:focus-visible {
     display: none !important;
   }
 }
-/* ---------------------------------------------------------
-   MOBILE BURGER (merged: menu toggle for the <=900px nav)
-   home.js toggles #navMenu.open on index; nav-burger.js does
-   the same on pages without home.js (login/register).
---------------------------------------------------------- */
-
-.bk-nav-burger {
-  display: none !important;
-
-  flex-direction: column !important;
-  justify-content: center;
-  align-items: center;
-  gap: 5px !important;
-
-  width: 42px;
-  height: 42px;
-
-  padding: 0 !important;
-
-  background: transparent !important;
-  border: none !important;
-  border-radius: 10px;
-
-  cursor: pointer;
-}
-
-.bk-nav-burger span {
-  width: 20px;
-  height: 2px;
-
-  background: currentColor;
-  border-radius: 2px;
-
-  transition: transform 0.2s ease, opacity 0.2s ease;
-}
-
-.bk-nav-burger.active span:nth-child(1) {
-  transform: translateY(7px) rotate(45deg);
-}
-
-.bk-nav-burger.active span:nth-child(2) {
-  opacity: 0;
-}
-
-.bk-nav-burger.active span:nth-child(3) {
-  transform: translateY(-7px) rotate(-45deg);
-}
-
-@media (max-width: 900px) {
-  .nav .bk-nav-burger {
-    display: flex !important;
-  }
-}
-
 /* login */
 /* =========================================================
    LOGIN — TYPOGRAPHY / SIZE / LAYOUT ONLY
@@ -5469,34 +5416,4 @@ select:focus-visible {
 #verificationSection .login-card-header p {
   line-height: 1.6;
   letter-spacing: 0.005em;
-}
-
-/* ===== TYPOGRAPHY QA OVERRIDES (appended last) ===== */
-.nav .nav-menu .nav-link {
-  line-height: 1.3 !important; /* VN stacked diacritics; size follows design grid */
-}
-
-/* Inputs & buttons: ≥16px everywhere (iOS zoom guard) */
-.form-input,
-.login-card .form-input,
-body.login-page-body .login-card .form-input,
-input[type="text"],
-input[type="email"],
-input[type="password"],
-input[type="tel"] {
-  font-size: 1rem !important;
-}
-
-.login-card .btn-primary,
-#loginSubmitBtn,
-#verifySubmitBtn {
-  font-size: 1rem !important; /* primary CTA readable */
-}
-
-/* Order reviews in "Cộng đồng nói gì" — star row on top of a review card */
-.review-card-stars {
-  color: #f5a623;
-  letter-spacing: 3px;
-  font-size: 0.9rem;
-  margin-bottom: 10px;
 }
