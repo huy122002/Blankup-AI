@@ -86,7 +86,7 @@
           <span class="menu-icon">07</span> <span data-i18n="admin.credits">Credits</span>
         </button>
         <button class="sidebar-link" data-tab="reports">
-          <span class="menu-icon">08</span> <span>Báo cáo</span>
+          <span class="menu-icon">08</span> <span data-i18n="admin.reports">Báo cáo</span>
         </button>
         <button class="sidebar-link" data-tab="reviews">
           <span class="menu-icon">09</span> <span data-i18n="admin.reviews">Đánh giá</span>
@@ -102,7 +102,7 @@
             <h2 data-i18n="admin.overviewTitle">Tổng quan vận hành</h2>
             <span class="panel-subtitle" data-i18n="admin.overviewSubtitle">Theo dõi đơn hàng, doanh thu, thanh toán QR và hoạt động tạo mẫu.</span>
           </div>
-          <div class="panel-live-chip"><span></span> Dữ liệu realtime</div>
+          <div class="panel-live-chip"><span></span><span data-i18n="admin.realtime">Dữ liệu realtime</span></div>
         </div>
 
         <div class="ops-command-strip">
@@ -179,7 +179,7 @@
           <div class="stat-card animate-fade-in rv">
             <div class="stat-icon">AI</div>
             <div class="stat-data">
-              <span class="stat-label">Mẫu AI gen</span>
+              <span class="stat-label" data-i18n="admin.stat.designs">Mẫu AI gen</span>
               <h2 class="stat-value" id="stat-designs-count">0</h2>
             </div>
           </div>
@@ -393,7 +393,7 @@
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th>Mã</th>
+                  <th data-i18n="admin.th.code">Mã</th>
                   <th data-i18n="admin.th.title">Tiêu đề</th>
                   <th data-i18n="admin.th.discount">Giảm giá</th>
                   <th data-i18n="admin.th.appliesTo">Áp dụng</th>
@@ -424,7 +424,7 @@
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th>Mã</th>
+                  <th data-i18n="admin.th.code">Mã</th>
                   <th data-i18n="admin.th.planName">Tên gói</th>
                   <th data-i18n="admin.th.price">Giá</th>
                   <th data-i18n="admin.th.credits" data-i18n="admin.credits">Credits</th>
@@ -476,24 +476,24 @@
       <section class="tab-panel" id="panel-reports">
         <div class="panel-header">
           <div>
-            <h2>Báo cáo d?nh k?</h2>
-            <span class="panel-subtitle">Tổng hợp doanh thu, đơn hàng theo tháng / quý / năm và xuất báo cáo CSV.</span>
+            <h2 data-i18n="admin.reportsTitle">Báo cáo định kỳ</h2>
+            <span class="panel-subtitle" data-i18n="admin.reportsSubtitle">Tổng hợp doanh thu, đơn hàng theo tháng / quý / năm và xuất báo cáo CSV.</span>
           </div>
           <div style="display:flex;gap:10px;align-items:center;">
-            <button class="btn btn-primary btn-sm" id="reportExportBtn" type="button">Xuất báo cáo CSV</button>
+            <button class="btn btn-primary btn-sm" id="reportExportBtn" type="button" data-i18n="admin.exportCsv">Xuất báo cáo CSV</button>
           </div>
         </div>
 
         <div class="filter-bar admin-order-toolbar">
-          <label style="font-weight:700;font-size:0.9rem;">Kỳ báo cáo:</label>
+          <label style="font-weight:700;font-size:0.9rem;" data-i18n="admin.reportPeriod">Kỳ báo cáo:</label>
           <select class="admin-select" id="reportPeriodSelect" style="min-width:160px;">
-            <option value="month">Theo tháng</option>
-            <option value="quarter">Theo quý</option>
-            <option value="year">Theo năm</option>
+            <option value="month" data-i18n="admin.byMonth">Theo tháng</option>
+            <option value="quarter" data-i18n="admin.byQuarter">Theo quý</option>
+            <option value="year" data-i18n="admin.byYear">Theo năm</option>
           </select>
-          <label style="font-weight:700;font-size:0.9rem;">Năm:</label>
+          <label style="font-weight:700;font-size:0.9rem;" data-i18n="admin.year">Năm:</label>
           <select class="admin-select" id="reportYearSelect" style="min-width:120px;"></select>
-          <button class="btn btn-secondary btn-sm" id="reportLoadBtn" type="button">Xem báo cáo</button>
+          <button class="btn btn-secondary btn-sm" id="reportLoadBtn" type="button" data-i18n="admin.viewReport">Xem báo cáo</button>
           <span class="orders-result-count" id="reportResultCount"></span>
         </div>
 
@@ -501,28 +501,28 @@
           <div class="stat-card revenue-card">
             <div class="stat-icon">VNĐ</div>
             <div class="stat-data">
-              <span class="stat-label">Tổng doanh thu</span>
+              <span class="stat-label" data-i18n="admin.report.totalRevenue">Tổng doanh thu</span>
               <h2 class="stat-value text-glow" id="report-total-revenue">0d</h2>
             </div>
           </div>
           <div class="stat-card">
             <div class="stat-icon">ORD</div>
             <div class="stat-data">
-              <span class="stat-label">Tổng đơn</span>
+              <span class="stat-label" data-i18n="admin.report.totalOrders">Tổng đơn</span>
               <h2 class="stat-value" id="report-total-orders">0</h2>
             </div>
           </div>
           <div class="stat-card">
             <div class="stat-icon">AVG</div>
             <div class="stat-data">
-              <span class="stat-label">Giá trị TB</span>
+              <span class="stat-label" data-i18n="admin.stat.avgValue">Giá trị TB</span>
               <h2 class="stat-value" id="report-avg-value">0d</h2>
             </div>
           </div>
           <div class="stat-card">
             <div class="stat-icon">?</div>
             <div class="stat-data">
-              <span class="stat-label">Hoàn thành</span>
+              <span class="stat-label" data-i18n="admin.summary.completed">Hoàn thành</span>
               <h2 class="stat-value" id="report-completed">0</h2>
             </div>
           </div>
@@ -530,33 +530,33 @@
 
         <div class="dashboard-card" style="margin-bottom:20px;">
           <div class="card-header-flex">
-            <h3 class="card-title" id="reportChartTitle">Biểu đồ doanh thu theo kỳ</h3>
+            <h3 class="card-title" id="reportChartTitle" data-i18n="admin.report.chartTitle">Biểu đồ doanh thu theo kỳ</h3>
             <span class="revenue-chart-total" id="reportChartTotal">0d</span>
           </div>
           <div class="revenue-chart-wrap">
             <svg class="revenue-chart" id="reportChart" viewBox="0 0 600 200" preserveAspectRatio="none" aria-hidden="true"></svg>
-            <div class="revenue-chart-empty" id="reportChartEmpty">Chưa có dữ liệu cho kỳ này.</div>
+            <div class="revenue-chart-empty" id="reportChartEmpty" data-i18n="admin.report.noData">Chưa có dữ liệu cho kỳ này.</div>
           </div>
           <div class="revenue-chart-labels" id="reportChartLabels"></div>
         </div>
 
         <div class="dashboard-card">
           <div class="card-header-flex">
-            <h3 class="card-title">Chi tiết theo kỳ</h3>
+            <h3 class="card-title" data-i18n="admin.report.detailsTitle">Chi tiết theo kỳ</h3>
             <span class="orders-result-count" id="reportTableCount"></span>
           </div>
           <div class="table-container">
             <table class="admin-table">
               <thead>
                 <tr>
-                  <th>Kỳ</th>
-                  <th>Tổng đơn</th>
-                  <th>Hoàn thành</th>
-                  <th>Chờ xử lý</th>
-                  <th>Đã hủy</th>
-                  <th>Doanh thu thực</th>
-                  <th>Doanh thu chờ</th>
-                  <th>TB / đơn</th>
+                  <th data-i18n="admin.report.period">Kỳ</th>
+                  <th data-i18n="admin.report.totalOrders">Tổng đơn</th>
+                  <th data-i18n="admin.summary.completed">Hoàn thành</th>
+                  <th data-i18n="admin.report.pending">Chờ xử lý</th>
+                  <th data-i18n="admin.summary.cancelled">Đã hủy</th>
+                  <th data-i18n="admin.report.actualRevenue">Doanh thu thực</th>
+                  <th data-i18n="admin.report.pendingRevenue">Doanh thu chờ</th>
+                  <th data-i18n="admin.report.averagePerOrder">TB / đơn</th>
                 </tr>
               </thead>
               <tbody id="reportsTableBody"></tbody>
@@ -572,7 +572,7 @@
             <span class="panel-subtitle" data-i18n="admin.reviewsSubtitle">Feedback thật từ khách đã đặt hàng — hiển thị trên phần “Cộng đồng nói gì” ở trang chủ. Có thể ẩn hoặc xóa đánh giá không phù hợp.</span>
           </div>
           <div style="display:flex;gap:10px;align-items:center;">
-            <button class="btn btn-primary btn-sm" id="reviewsRefreshBtn" type="button">Làm mới</button>
+            <button class="btn btn-primary btn-sm" id="reviewsRefreshBtn" type="button" data-i18n="admin.ledger.refresh">Làm mới</button>
           </div>
         </div>
 
@@ -605,16 +605,16 @@
 
         <div class="filter-bar admin-order-toolbar">
           <div class="filter-group">
-            <button class="review-filter-pill active" data-review-filter="all" type="button">Tất cả</button>
-            <button class="review-filter-pill" data-review-filter="visible" type="button">Đang hiển thị</button>
-            <button class="review-filter-pill" data-review-filter="hidden" type="button">Đã ẩn</button>
+            <button class="review-filter-pill active" data-review-filter="all" type="button" data-i18n="admin.filter.all">Tất cả</button>
+            <button class="review-filter-pill" data-review-filter="visible" type="button" data-i18n="admin.reviewsVisible">Đang hiển thị</button>
+            <button class="review-filter-pill" data-review-filter="hidden" type="button" data-i18n="admin.visibility.hidden">Đã ẩn</button>
             <button class="review-filter-pill" data-review-filter="5" type="button">★5</button>
             <button class="review-filter-pill" data-review-filter="4" type="button">★4</button>
             <button class="review-filter-pill" data-review-filter="3" type="button">★3</button>
             <button class="review-filter-pill" data-review-filter="low" type="button">★≤2</button>
-            <button class="review-filter-pill" data-review-filter="noreply" type="button">Chưa phản hồi</button>
+            <button class="review-filter-pill" data-review-filter="noreply" type="button" data-i18n="admin.unreplied">Chưa phản hồi</button>
           </div>
-          <input class="admin-search" id="reviewSearchInput" type="search" aria-label="Tìm kiếm đánh giá" placeholder="Tìm mã đơn, khách hàng, nội dung...">
+          <input class="admin-search" id="reviewSearchInput" type="search" aria-label="Tìm kiếm đánh giá" placeholder="Tìm mã đơn, khách hàng, nội dung..." data-i18n-placeholder="admin.reviewsSearchPlaceholder">
           <span class="orders-result-count" id="reviewsResultCount">0 đánh giá</span>
         </div>
 
@@ -755,7 +755,7 @@
           </div>
           <div>
             <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.9rem;" data-i18n="admin.form.fullName">Họ và tên<span style="color:var(--error);">*</span></label>
-            <input type="text" id="uf-fullname" required placeholder="Nguy?n Van A" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:0.95rem;background:var(--bg-secondary);color:var(--text-primary);">
+            <input type="text" id="uf-fullname" required placeholder="Nguyen Van A" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:0.95rem;background:var(--bg-secondary);color:var(--text-primary);">
           </div>
           <div>
             <label style="display:block;font-weight:600;margin-bottom:6px;font-size:0.9rem;" data-i18n="admin.form.email">Email</label>

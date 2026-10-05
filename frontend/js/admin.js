@@ -766,14 +766,18 @@ function renderAdminReviews() {
   if (!tbody) return;
   const reviews = filteredAdminReviews();
   const countEl = document.getElementById('reviewsResultCount');
-  if (countEl) countEl.textContent = `${reviews.length} đánh giá`;
+
+  if (countEl) {
+    countEl.innerHTML = `${reviews.length} <span data-i18n="admin.reviews">Đánh giá</span>`;
+  }
 
   if (!adminState.reviews.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="orders-result-count">Chưa có đánh giá nào từ khách hàng.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="orders-result-count"><span data-i18n="admin.empty.reviews">Chưa có đánh giá nào từ khách hàng.</span></td></tr>';
     return;
   }
+
   if (!reviews.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="orders-result-count">Không có đánh giá nào khớp bộ lọc.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="orders-result-count"><span data-i18n="admin.empty.reviewFilter">Không có đánh giá nào khớp bộ lọc.</span></td></tr>';
     return;
   }
 

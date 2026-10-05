@@ -196,6 +196,12 @@ font-size: 0.75rem;
   color: #837b6b !important;
 }
 
+.panel-live-chip {
+  font-family: var(--font-body);
+  font-size: 14px;
+  color: #837b6b !important;
+}
+
 /* Stats Cards Grid */
 .stats-grid {
   display: grid;
@@ -489,7 +495,7 @@ font-size: 0.75rem;
 .admin-table th {
   font-family: var(--font-heading);
   font-weight: 600;
-  color: #423d34 !important;
+  color: #f3eded !important;
   text-transform: uppercase;
   font-size: 12px;
   letter-spacing: 0.8px;
@@ -1336,6 +1342,7 @@ body.admin-theme .stat-value {
   letter-spacing: -0.01em;
 }
 body.admin-theme .panel-subtitle,
+body.admin-theme .panel-live-chip,
 body.admin-theme .stat-label,
 body.admin-theme .sidebar-link,
 body.admin-theme .vf-label {
@@ -1373,6 +1380,7 @@ font-size: 0.75rem;
 body.admin-theme .btn-primary {
 background: #0f0c09;
 border-color: #0f0c09;
+color: #ffffff;
 border-radius: 2px;
 font-family: var(--font-mono);
 font-size: 0.75rem;
