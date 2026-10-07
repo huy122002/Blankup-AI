@@ -669,6 +669,7 @@ const translations = {
     'admin.reviewsLoading': 'Đang tải đánh giá...',
     'admin.empty.reviews': 'Chưa có đánh giá nào từ khách hàng.',
     'admin.empty.reviewFilter': 'Không có đánh giá nào khớp bộ lọc.',
+    'admin.month': 'Tháng',
   },
 
   en: {
@@ -1335,6 +1336,7 @@ const translations = {
     'admin.reviewsLoading': 'Loading reviews...',
     'admin.empty.reviews': 'No customer reviews yet.',
     'admin.empty.reviewFilter': 'No reviews match the current filter.',
+    'admin.month': 'Month',
   }
 };
 
